@@ -13,7 +13,6 @@ from dataset import ISLRDataSet
 from options import parser
 from utils import AverageMeter, save_checkpoint, accuracy
 
-best_acc = 0
 os.environ["CUDA_DEVICE_ORDER"] = "PCI_BUS_ID"
 os.environ["CUDA_VISIBLE_DEVICES"] = "7"
 
@@ -31,6 +30,8 @@ def main():
 
     time_stamp = "{0:%Y-%m-%dT%H-%M-%S/}".format(datetime.now())
     for cur_fold in range(1, args.folds + 1):
+        best_acc = 0
+
         print(f"####### Fold-{cur_fold} training start #######")
         os.makedirs(
             os.path.join(args.log_path, args.exp_name, time_stamp, str(cur_fold)),
@@ -183,6 +184,7 @@ def validate(val_loader, model, criterion, epoch, log_training, tf_writer):
     info = "Validate: Loss {loss.avg:.5f}\t Acc {acc.avg:.5f}".format(
         loss=losses, acc=accs
     )
+    print(info)
 
     log_training.write(info + "\n")
     log_training.flush()
