@@ -10,16 +10,22 @@ parser.add_argument(
     type=str,
     help="root path of dataset",
 )
-parser.add_argument("--data_ver", default=0, type=int, help="version of dataset")
 parser.add_argument("--folds", default=5, type=int, help="the number of folds")
 # ========================= Model Configs ==========================
-
+parser.add_argument("--max_len", default=80, type=int, help="max length of seqeunce")
+parser.add_argument("--num_points", default=82, type=int, help="the number landmarks")
+parser.add_argument(
+    "--embed_dim", default=256, type=int, help="the dim of xyz embedding"
+)
+parser.add_argument("--n_head", default=4, type=int, help="the number of multihead")
+parser.add_argument("--ff_dim", default=1024, type=int, help="the dim of feedforward")
+parser.add_argument("--dropout", default=0.1, type=float, help="the prob of dropout")
 # ========================= Learning Configs ==========================
 parser.add_argument("--epochs", default=100, type=int, help="number of total epochs")
 parser.add_argument(
     "--batch_size", default=64, type=int, help="number of samples per iteration"
 )
-parser.add_argument("--lr", default=1e-4, type=float)
+parser.add_argument("--lr", default=1e-3, type=float)
 parser.add_argument("--weight_decay", default=1e-2, type=float)
 parser.add_argument("--loss", default="ce", type=str)
 # ========================= Monitor Configs ==========================

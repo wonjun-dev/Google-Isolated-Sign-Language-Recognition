@@ -8,8 +8,8 @@ from datetime import datetime
 
 from torch.utils.tensorboard import SummaryWriter
 
-from model import ISLRModel, MLPLayer
-from dataset import ISLRDataSet
+from model import ISLRModel
+from dataset import ISLRDataSetV2, collate_func
 from options import parser
 from utils import AverageMeter, save_checkpoint, accuracy
 
@@ -54,8 +54,8 @@ def main():
         train_idx = np.load(os.path.join(ROOT_PATH, "cv", f"train_idx_f{cur_fold}.npy"))
         val_idx = np.load(os.path.join(ROOT_PATH, "cv", f"val_idx_f{cur_fold}.npy"))
 
-        train_dataset = ISLRDataSet(ver=args.data_ver, indicies=train_idx)
-        val_dataset = ISLRDataSet(ver=args.data_ver, indicies=val_idx)
+        train_dataset = ISLRDataSetV2(max_len=args.max_len, indicies=train_idx)
+        val_dataset = ISLRDataSetV2(max_len=args.max_len, indicies=val_idx)
 
         train_loader = torch.utils.data.DataLoader(
             train_dataset,
@@ -64,6 +64,7 @@ def main():
             num_workers=args.workers,
             pin_memory=False,
             drop_last=True,
+            collate_fn=collate_func,
         )
 
         val_loader = torch.utils.data.DataLoader(
@@ -72,10 +73,18 @@ def main():
             shuffle=False,
             num_workers=args.workers,
             pin_memory=False,
+            collate_fn=collate_func,
         )
 
         ####### Model #######
-        model = ISLRModel(encoder_layer=MLPLayer)
+        model = ISLRModel(
+            embed_dim=args.embed_dim,
+            n_head=args.n_head,
+            ff_dim=args.ff_dim,
+            dropout=args.dropout,
+            max_len=args.max_len,
+            num_points=args.num_points,
+        )
         try:
             model = nn.DataParallel(model).cuda()
         except:
@@ -134,14 +143,14 @@ def train(train_loader, model, criterion, optimizer, epoch, log_training, tf_wri
     accs = AverageMeter()
 
     model.train()
-    for idx, (x, y) in enumerate(train_loader):
-        x, y = x.cuda(), y.cuda()
-        output = model(x)
+    for idx, batch in enumerate(train_loader):
+        y = batch["label"].cuda()
+        output = model(batch)
         loss = criterion(output, y)
         acc = accuracy(output, y)
 
-        losses.update(loss.item(), x.size(0))
-        accs.update(acc, x.size(0))
+        losses.update(loss.item(), y.size(0))
+        accs.update(acc, y.size(0))
 
         optimizer.zero_grad()
         loss.backward()
@@ -155,8 +164,6 @@ def train(train_loader, model, criterion, optimizer, epoch, log_training, tf_wri
                     epoch, idx + 1, len(train_loader), loss=losses, acc=accs
                 )
             )
-            losses.reset()
-            accs.reset()
             print(info)
             log_training.write(info + "\n")
             log_training.flush()
@@ -165,6 +172,9 @@ def train(train_loader, model, criterion, optimizer, epoch, log_training, tf_wri
     tf_writer.add_scalar("acc/train", accs.avg, epoch)
     tf_writer.add_scalar("lr", optimizer.param_groups[-1]["lr"], epoch)
 
+    losses.reset()
+    accs.reset()
+
 
 def validate(val_loader, model, criterion, epoch, log_training, tf_writer):
     losses = AverageMeter()
@@ -172,14 +182,14 @@ def validate(val_loader, model, criterion, epoch, log_training, tf_writer):
     model.eval()
 
     with torch.no_grad():
-        for x, y in val_loader:
-            x, y = x.cuda(), y.cuda()
-            output = model(x)
+        for batch in val_loader:
+            y = batch["label"].cuda()
+            output = model(batch)
             loss = criterion(output, y)
             acc = accuracy(output, y)
 
-            losses.update(loss.item(), x.size(0))
-            accs.update(acc, x.size(0))
+            losses.update(loss.item(), y.size(0))
+            accs.update(acc, y.size(0))
 
     info = "Validate: Loss {loss.avg:.5f}\t Acc {acc.avg:.5f}".format(
         loss=losses, acc=accs

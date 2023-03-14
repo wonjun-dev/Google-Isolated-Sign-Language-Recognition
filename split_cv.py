@@ -29,19 +29,28 @@ if __name__ == "__main__":
     ROOT_PATH = "/sources/dataset/"
     os.makedirs(os.path.join(ROOT_PATH, "cv"), exist_ok=True)
 
-    features = np.load(os.path.join(ROOT_PATH, "features", "ver0", "feature_data.npy"))
-    labels = np.load(os.path.join(ROOT_PATH, "features", "ver0", "feature_labels.npy"))
-    groups = np.load(os.path.join(ROOT_PATH, "participants.npy"))
+    df = pd.read_csv(os.path.join(ROOT_PATH, "train.csv"))
     label_map = json.load(
         open(os.path.join(ROOT_PATH, "sign_to_prediction_index_map.json"))
     )
+    paths = []
+    groups = []
+    labels = []
+
+    for row in df.itertuples():
+        paths.append(row.path)
+        labels.append(label_map[row.sign])
+        groups.append(int(row.participant_id))
+
+    groups = np.array(groups)
+    labels = np.array(labels)
 
     cv = StratifiedGroupKFold(n_splits=5)
 
     distrs = [get_distribution(labels)]
     index = ["training set"]
 
-    for fold_ind, (train_idx, val_idx) in enumerate(cv.split(features, labels, groups)):
+    for fold_ind, (train_idx, val_idx) in enumerate(cv.split(paths, labels, groups)):
         train_y, val_y = labels[train_idx], labels[val_idx]
         train_gr, val_gr = groups[train_idx], groups[val_idx]
 
