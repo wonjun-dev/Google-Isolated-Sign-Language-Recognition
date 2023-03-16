@@ -1,6 +1,7 @@
 import os
 import torch
 import torch.nn as nn
+import torch.optim as optim
 import torch.backends.cudnn as cudnn
 import random
 import numpy as np
@@ -95,7 +96,9 @@ def main():
         optimizer = torch.optim.AdamW(
             model.parameters(), lr=args.lr, weight_decay=args.weight_decay
         )
-
+        scheduler = optim.lr_scheduler.CosineAnnealingWarmRestarts(
+            optimizer, T_0=args.T_0, T_mult=args.T_mult
+        )
         ####### Loss #######
         if args.loss == "ce":
             criterion = nn.CrossEntropyLoss().cuda()
@@ -113,6 +116,7 @@ def main():
                 log_training,
                 tf_writer,
             )
+            scheduler.step()
 
             if epoch % args.eval_freq == 0:
                 val_loss, val_acc = validate(

@@ -67,17 +67,63 @@ class TransformerBlock(nn.Module):
         batch_first=True,
     ):
         super(TransformerBlock, self).__init__()
-        encoder_layer = TransformerEncoderLayer(
-            d_model=embed_dim,
-            nhead=n_head,
-            dim_feedforward=ff_dim,
+        self.attn = MultiHeadAttention(
+            embed_dim, n_head, dropout=dropout, batch_first=batch_first
+        )
+        self.ffn = FeedForward(embed_dim, ff_dim)
+        self.norm1 = nn.LayerNorm(embed_dim)
+        self.norm2 = nn.LayerNorm(ff_dim)
+        # encoder_layer = TransformerEncoderLayer(
+        #     d_model=embed_dim,
+        #     nhead=n_head,
+        #     dim_feedforward=ff_dim,
+        #     dropout=dropout,
+        #     batch_first=batch_first,
+        # )
+        # self.encoder = TransformerEncoder(encoder_layer, n_layer)
+
+    def forward(self, x, x_mask=None):
+        x = x + self.attn((self.norm1(x)), x_mask)
+        x = x + self.ffn((self.norm2(x)))
+        return x
+
+
+class FeedForward(nn.Module):
+    def __init__(self, embed_dim, ff_dim):
+        super().__init__()
+        self.mlp = nn.Sequential(
+            nn.Linear(embed_dim, ff_dim),
+            nn.ReLU(inplace=True),
+            nn.Linear(ff_dim, embed_dim),
+        )
+
+    def forward(self, x):
+        return self.mlp(x)
+
+
+class MultiHeadAttention(nn.Module):
+    def __init__(
+        self,
+        embed_dim,
+        n_head,
+        dropout,
+        batch_first,
+    ):
+        super().__init__()
+        self.mha = nn.MultiheadAttention(
+            embed_dim,
+            num_heads=n_head,
+            bias=True,
+            add_bias_kv=False,
+            kdim=None,
+            vdim=None,
             dropout=dropout,
             batch_first=batch_first,
         )
-        self.encoder = TransformerEncoder(encoder_layer, n_layer)
 
     def forward(self, x, x_mask):
-        return self.encoder(x, src_key_padding_mask=x_mask)
+        out, _ = self.mha(x, x, x, key_padding_mask=x_mask)
+        return out
 
 
 def positional_encoding(length, embed_dim):
@@ -133,7 +179,7 @@ if __name__ == "__main__":
         collate_fn=collate_func,
     )
 
-    model = ISLRModel(embed_dim=256, n_head=4, ff_dim=1024)
+    model = ISLRModel(embed_dim=256, n_head=4, ff_dim=256)
 
     for idx, batch in enumerate(train_loader):
         out = model(batch)

@@ -18,7 +18,7 @@ parser.add_argument(
     "--embed_dim", default=256, type=int, help="the dim of xyz embedding"
 )
 parser.add_argument("--n_head", default=4, type=int, help="the number of multihead")
-parser.add_argument("--ff_dim", default=1024, type=int, help="the dim of feedforward")
+parser.add_argument("--ff_dim", default=256, type=int, help="the dim of feedforward")
 parser.add_argument("--dropout", default=0.1, type=float, help="the prob of dropout")
 # ========================= Learning Configs ==========================
 parser.add_argument("--epochs", default=100, type=int, help="number of total epochs")
@@ -26,6 +26,8 @@ parser.add_argument(
     "--batch_size", default=64, type=int, help="number of samples per iteration"
 )
 parser.add_argument("--lr", default=1e-3, type=float)
+parser.add_argument("--T_0", default=50, type=int)
+parser.add_argument("--T_mult", default=1, type=int)
 parser.add_argument("--weight_decay", default=1e-2, type=float)
 parser.add_argument("--loss", default="ce", type=str)
 # ========================= Monitor Configs ==========================
