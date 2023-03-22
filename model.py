@@ -21,13 +21,16 @@ class ISLRModel(nn.Module):
         max_len=80,
         n_labels=250,
         num_points=82,
+        point_dim=3,
         batch_first=True,
     ):
         super(ISLRModel, self).__init__()
         pos_encoding = positional_encoding(max_len, embed_dim)
         self.pos_emb = nn.Parameter(pos_encoding)
         self.cls_emb = nn.Parameter(torch.zeros((1, embed_dim)))
-        self.xyz_emb = nn.Sequential(nn.Linear(num_points * 3, embed_dim, bias=False))
+        self.xyz_emb = nn.Sequential(
+            nn.Linear(num_points * point_dim, embed_dim, bias=False)
+        )
         self.feature_extractor = TransformerBlock(
             embed_dim=embed_dim,
             n_head=n_head,
@@ -39,10 +42,58 @@ class ISLRModel(nn.Module):
         self.logit = nn.Linear(embed_dim, n_labels)
 
         self.max_len = max_len
+        self.point_dim = point_dim
 
     def forward(self, batch):
         xyz = batch["xyz"]
-        x, x_mask = pack_seq(xyz, self.max_len)
+        x, x_mask = pack_seq(xyz, self.max_len, self.point_dim)
+        B, L, _ = x.shape
+        x = self.xyz_emb(x)
+        x = x + self.pos_emb[:L].unsqueeze(0)
+        x = torch.cat([self.cls_emb.unsqueeze(0).repeat(B, 1, 1), x], 1)
+        x_mask = torch.cat([torch.zeros(B, 1).to(x_mask), x_mask], 1)
+        x = self.feature_extractor(x, x_mask)
+        cls = x[:, 0]
+        cls = F.dropout(cls, p=0.4, training=self.training)
+        logit = self.logit(cls)
+
+        return logit
+
+
+class ISLRModelV2(nn.Module):
+    def __init__(
+        self,
+        embed_dim,
+        n_head,
+        ff_dim,
+        dropout=0.1,
+        n_layer=1,
+        max_len=384,
+        n_labels=250,
+        input_dim=912,
+        batch_first=True,
+    ):
+        super(ISLRModelV2, self).__init__()
+        pos_encoding = positional_encoding(max_len, embed_dim)
+        self.pos_emb = nn.Parameter(pos_encoding)
+        self.cls_emb = nn.Parameter(torch.zeros((1, embed_dim)))
+        self.xyz_emb = nn.Sequential(nn.Linear(input_dim, embed_dim, bias=False))
+        self.feature_extractor = TransformerBlock(
+            embed_dim=embed_dim,
+            n_head=n_head,
+            ff_dim=ff_dim,
+            dropout=dropout,
+            n_layer=n_layer,
+            batch_first=batch_first,
+        )
+        self.logit = nn.Linear(embed_dim, n_labels)
+
+        self.max_len = max_len
+        self.input_dim = input_dim
+
+    def forward(self, batch):
+        xyz = batch["xyz"]
+        x, x_mask = pack_seqv2(xyz, self.max_len)
         B, L, _ = x.shape
         x = self.xyz_emb(x)
         x = x + self.pos_emb[:L].unsqueeze(0)
@@ -137,19 +188,35 @@ def positional_encoding(length, embed_dim):
     return pos_embed
 
 
-def pack_seq(seq, max_len):
+def pack_seq(seq, max_len, point_dim):
     length = [min(len(s), max_len) for s in seq]
     batch_size = len(seq)
     K = seq[0].shape[1]
     L = max(length)
-    x = torch.zeros((batch_size, L, K, 3)).to(seq[0].device)
+    x = torch.zeros((batch_size, L, K, point_dim)).to(seq[0].device)
     x_mask = torch.zeros((batch_size, L)).to(seq[0].device)
     for b in range(batch_size):
         l = length[b]
         x[b, :l] = seq[b][:l]
         x_mask[b, l:] = 1
     x_mask = x_mask > 0.5
-    x = x.reshape(batch_size, -1, K * 3)
+    x = x.reshape(batch_size, -1, K * point_dim)
+    return x, x_mask
+
+
+def pack_seqv2(seq, max_len):
+    # seq: [L, 912]
+    length = [min(len(s), max_len) for s in seq]
+    batch_size = len(seq)
+    K = seq[0].shape[-1]
+    L = max(length)
+    x = torch.zeros((batch_size, L, K)).to(seq[0].device)
+    x_mask = torch.zeros((batch_size, L)).to(seq[0].device)
+    for b in range(batch_size):
+        l = length[b]
+        x[b, :l] = seq[b][:l]
+        x_mask[b, l:] = 1
+    x_mask = x_mask > 0.5
     return x, x_mask
 
 

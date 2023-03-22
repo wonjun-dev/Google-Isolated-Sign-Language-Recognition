@@ -4,7 +4,24 @@ import numpy as np
 import pandas as pd
 import torch
 from torch.utils.data import Dataset, DataLoader
-from preproc import preprocess
+from preproc import (
+    preprocess,
+    preprocess_centercrop,
+    preprocess_body,
+    preprocess_bodyarm,
+    preprocess_bodyarm2,
+    preprocess_wonorm,
+    preprocess_xyzd,
+    preprocess_xyzd_hdist,
+    preprocess_xyzd_hdist_interpolate,
+    preprocess_xyzd_hdist_hdistd,
+    preprocess_xyzd_hdist_nl,
+    preprocess_xyzd_hdist_pnv,
+    preprocess_xyzd_hdist_pnv_nl,
+    preprocess_bm0,
+    preprocess_bm0x5,
+    preprocess_smooth,
+)
 
 import time
 
@@ -33,7 +50,7 @@ class ISLRDataSet(Dataset):
 
 
 class ISLRDataSetV2(Dataset):
-    def __init__(self, path="/sources/dataset", max_len=80, indicies=None):
+    def __init__(self, path="/sources/dataset", max_len=80, ver="base", indicies=None):
         self.path = path
         df = pd.read_csv(os.path.join(path, "train.csv"))
         self.label_map = json.load(
@@ -47,6 +64,7 @@ class ISLRDataSetV2(Dataset):
             self.df = df
 
         self.max_len = max_len
+        self.ver = ver
 
     def __len__(self):
         return len(self.df)
@@ -56,7 +74,39 @@ class ISLRDataSetV2(Dataset):
             os.path.join(self.path, self.df.iloc[index].path)
         )
         xyz = torch.from_numpy(xyz).float()
-        xyz = preprocess(xyz, self.max_len)
+        if self.ver == "base":
+            xyz = preprocess(xyz, self.max_len)
+        elif self.ver == "base_centercrop":
+            xyz = preprocess_centercrop(xyz, self.max_len)
+        elif self.ver == "body":
+            xyz = preprocess_body(xyz, self.max_len)
+        elif self.ver == "bodyarm":
+            xyz = preprocess_bodyarm(xyz, self.max_len)
+        elif self.ver == "bodyarm2":
+            xyz = preprocess_bodyarm2(xyz, self.max_len)
+        elif self.ver == "wonrom_base":
+            xyz = preprocess_wonorm(xyz, self.max_len)
+        elif self.ver == "xyzd":
+            xyz = preprocess_xyzd(xyz, self.max_len)
+        elif self.ver == "xyzd_hdist":
+            xyz = preprocess_xyzd_hdist(xyz, self.max_len)
+        elif self.ver == "xyzd_hdist_interp":
+            xyz = preprocess_xyzd_hdist_interpolate(xyz, self.max_len)
+        elif self.ver == "xyzd_hdist_hdistd":
+            xyz = preprocess_xyzd_hdist_hdistd(xyz, self.max_len)
+        elif self.ver == "xyzd_hdist_nl":
+            xyz = preprocess_xyzd_hdist_nl(xyz, self.max_len)
+        elif self.ver == "xyzd_hdist_pnv":
+            xyz = preprocess_xyzd_hdist_pnv(xyz, self.max_len)
+        elif self.ver == "xyzd_hdist_pnv_nl":
+            xyz = preprocess_xyzd_hdist_pnv_nl(xyz, self.max_len)
+        elif self.ver == "bm0":
+            xyz = preprocess_bm0(xyz, self.max_len)
+        elif self.ver == "bm0x5":
+            xyz = preprocess_bm0x5(xyz, self.max_len)
+        else:
+            raise NotImplementedError
+
         label = self.label_map[self.df.iloc[index].sign]
 
         d = {}

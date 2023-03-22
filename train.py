@@ -2,6 +2,7 @@ import os
 import torch
 import torch.nn as nn
 import torch.optim as optim
+from torch.optim.swa_utils import AveragedModel, SWALR
 import torch.backends.cudnn as cudnn
 import random
 import numpy as np
@@ -9,7 +10,7 @@ from datetime import datetime
 
 from torch.utils.tensorboard import SummaryWriter
 
-from model import ISLRModel
+from model import ISLRModel, ISLRModelV2
 from dataset import ISLRDataSetV2, collate_func
 from options import parser
 from utils import AverageMeter, save_checkpoint, accuracy
@@ -55,8 +56,12 @@ def main():
         train_idx = np.load(os.path.join(ROOT_PATH, "cv", f"train_idx_f{cur_fold}.npy"))
         val_idx = np.load(os.path.join(ROOT_PATH, "cv", f"val_idx_f{cur_fold}.npy"))
 
-        train_dataset = ISLRDataSetV2(max_len=args.max_len, indicies=train_idx)
-        val_dataset = ISLRDataSetV2(max_len=args.max_len, indicies=val_idx)
+        train_dataset = ISLRDataSetV2(
+            max_len=args.max_len, ver=args.preproc_ver, indicies=train_idx
+        )
+        val_dataset = ISLRDataSetV2(
+            max_len=args.max_len, ver=args.preproc_ver, indicies=val_idx
+        )
 
         train_loader = torch.utils.data.DataLoader(
             train_dataset,
@@ -78,13 +83,13 @@ def main():
         )
 
         ####### Model #######
-        model = ISLRModel(
+        model = ISLRModelV2(
             embed_dim=args.embed_dim,
             n_head=args.n_head,
             ff_dim=args.ff_dim,
             dropout=args.dropout,
             max_len=args.max_len,
-            num_points=args.num_points,
+            input_dim=args.input_dim,
         )
         try:
             model = nn.DataParallel(model).cuda()
@@ -101,9 +106,15 @@ def main():
         )
         ####### Loss #######
         if args.loss == "ce":
-            criterion = nn.CrossEntropyLoss().cuda()
+            criterion = nn.CrossEntropyLoss(label_smoothing=args.lb).cuda()
         else:
             raise NotImplementedError
+
+        ####### SWA #######
+        if args.swa:
+            swa_model = AveragedModel(model)
+            swa_start = int(args.epochs * 0.75)
+            swa_scheduler = SWALR(optimizer, swa_lr=5e-5)
 
         ####### Loop #######
         for epoch in range(1, args.epochs + 1):
@@ -116,7 +127,11 @@ def main():
                 log_training,
                 tf_writer,
             )
-            scheduler.step()
+            if args.swa and epoch >= swa_start:
+                swa_model.update_parameters(model)
+                swa_scheduler.step()
+            else:
+                scheduler.step()
 
             if epoch % args.eval_freq == 0:
                 val_loss, val_acc = validate(
@@ -131,7 +146,11 @@ def main():
                 log_training.flush()
 
                 save_checkpoint(
-                    {"state_dict": model.state_dict()},
+                    {
+                        "state_dict": swa_model.state_dict()
+                        if args.swa
+                        else model.state_dict()
+                    },
                     is_best,
                     args.ckpt_path,
                     args.exp_name,
