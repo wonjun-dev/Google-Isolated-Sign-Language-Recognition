@@ -13,6 +13,8 @@ from preproc import (
     preprocess_wonorm,
     preprocess_xyzd,
     preprocess_xyzd_hdist,
+    preprocess_xyzd_hdist_v2,
+    preprocess_xyzd_hdist_v3,
     preprocess_xyzd_hdist_interpolate,
     preprocess_xyzd_hdist_hdistd,
     preprocess_xyzd_hdist_nl,
@@ -90,6 +92,10 @@ class ISLRDataSetV2(Dataset):
             xyz = preprocess_xyzd(xyz, self.max_len)
         elif self.ver == "xyzd_hdist":
             xyz = preprocess_xyzd_hdist(xyz, self.max_len)
+        elif self.ver == "xyzd_hdist_v2":
+            xyz = preprocess_xyzd_hdist_v2(xyz, self.max_len)
+        elif self.ver == "xyzd_hdist_v3":
+            xyz = preprocess_xyzd_hdist_v3(xyz, self.max_len)
         elif self.ver == "xyzd_hdist_interp":
             xyz = preprocess_xyzd_hdist_interpolate(xyz, self.max_len)
         elif self.ver == "xyzd_hdist_hdistd":

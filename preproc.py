@@ -279,6 +279,108 @@ def preprocess_xyzd_hdist(xyz, max_len):
     return x
 
 
+def preprocess_xyzd_hdist_v2(xyz, max_len):
+    L = len(xyz)
+    if L > max_len:
+        i = (L - max_len) // 2
+        xyz = xyz[i : i + max_len]
+    L = len(xyz)
+
+    # noramlization
+    valid_mask = ~torch.isnan(xyz)
+    sum_xyz = torch.nansum(xyz, dim=(0, 1))
+    count_xyz = torch.sum(valid_mask, dim=(0, 1)).to(torch.float32)
+    mean_xyz = sum_xyz / count_xyz
+
+    gap = torch.where(valid_mask, xyz - mean_xyz, torch.tensor(float("nan")))
+    sum_sq_diff = torch.nansum(gap**2, dim=(0, 1))
+    std_xyz = torch.sqrt(sum_sq_diff / count_xyz)
+
+    xyz = torch.where(valid_mask, gap / std_xyz, torch.tensor(float("nan")))
+
+    # selection
+    xyz = xyz[:, LHAND + RHAND + LIP]
+
+    # motion
+    dxyz = xyz[:-1] - xyz[1:]
+    dxyz = np.pad(dxyz, [[0, 1], [0, 0], [0, 0]])
+
+    # hand joint-wise distance
+    mask = torch.tril(torch.ones(L, 21, 21, dtype=torch.bool), diagonal=-1)
+    lhand = xyz[:, :21, :2]
+    ld = lhand.reshape(-1, 21, 1, 2) - lhand.reshape(-1, 1, 21, 2)
+    ld = torch.sqrt((ld**2).sum(-1))
+    ld = ld.masked_select(mask)
+
+    rhand = xyz[:, 21:42, :2]
+    rd = rhand.reshape(-1, 21, 1, 2) - rhand.reshape(-1, 1, 21, 2)
+    rd = torch.sqrt((rd**2).sum(-1))
+    rd = rd.masked_select(mask)
+
+    x = torch.cat(
+        [
+            xyz.reshape(L, -1),
+            torch.from_numpy(dxyz).reshape(L, -1),
+            ld.reshape(L, -1),
+            rd.reshape(L, -1),
+        ],  # (none, 912)
+        -1,
+    )
+    x[torch.isnan(x)] = 0
+    return x
+
+
+def preprocess_xyzd_hdist_v3(xyz, max_len):
+    L = len(xyz)
+    if L > max_len:
+        i = (L - max_len) // 2
+        xyz = xyz[i : i + max_len]
+    L = len(xyz)
+
+    # noramlization
+    valid_mask = ~torch.isnan(xyz)
+    sum_xyz = torch.nansum(xyz, dim=(0))
+    count_xyz = torch.sum(valid_mask, dim=(0)).to(torch.float32)
+    mean_xyz = sum_xyz / count_xyz
+
+    gap = torch.where(valid_mask, xyz - mean_xyz, torch.tensor(float("nan")))
+    sum_sq_diff = torch.nansum(gap**2, dim=(0))
+    std_xyz = torch.sqrt(sum_sq_diff / count_xyz)
+
+    xyz = torch.where(valid_mask, gap / std_xyz, torch.tensor(float("nan")))
+
+    # selection
+    xyz = xyz[:, LHAND + RHAND + LIP]
+
+    # motion
+    dxyz = xyz[:-1] - xyz[1:]
+    dxyz = np.pad(dxyz, [[0, 1], [0, 0], [0, 0]])
+
+    # hand joint-wise distance
+    mask = torch.tril(torch.ones(L, 21, 21, dtype=torch.bool), diagonal=-1)
+    lhand = xyz[:, :21, :2]
+    ld = lhand.reshape(-1, 21, 1, 2) - lhand.reshape(-1, 1, 21, 2)
+    ld = torch.sqrt((ld**2).sum(-1))
+    ld = ld.masked_select(mask)
+
+    rhand = xyz[:, 21:42, :2]
+    rd = rhand.reshape(-1, 21, 1, 2) - rhand.reshape(-1, 1, 21, 2)
+    rd = torch.sqrt((rd**2).sum(-1))
+    rd = rd.masked_select(mask)
+
+    x = torch.cat(
+        [
+            xyz.reshape(L, -1),
+            torch.from_numpy(dxyz).reshape(L, -1),
+            ld.reshape(L, -1),
+            rd.reshape(L, -1),
+        ],  # (none, 912)
+        -1,
+    )
+    x[torch.isnan(x)] = 0
+    return x
+
+
 def preprocess_xyzd_hdist_interpolate(xyz, max_len):
     L = len(xyz)
     if L > max_len:
@@ -295,7 +397,7 @@ def preprocess_xyzd_hdist_interpolate(xyz, max_len):
     # selection
     xyz = xyz[:, LHAND + RHAND + LIP]
 
-    # interpolate
+    # interpolate (increase nan values)
     f = interp1d(np.arange(0, L), xyz, axis=0)
     xyz = torch.from_numpy(f(np.arange(0, L - 1, 0.5)))
     L = len(xyz)
@@ -327,6 +429,10 @@ def preprocess_xyzd_hdist_interpolate(xyz, max_len):
     )
     x[torch.isnan(x)] = 0
     return x
+
+
+def preprocess_xyzd_hdist_ma(xyz, max_len):
+    pass
 
 
 def preprocess_xyzd_hdist_hdistd(xyz, max_len):
@@ -625,7 +731,7 @@ if __name__ == "__main__":
         "/sources/dataset/train_landmark_files/2044/635217.parquet"
     )
     xyz = torch.from_numpy(xyz).float()
-    xyz = preprocess_xyzd_hdist_interpolate(xyz, max_len)
+    xyz = preprocess_xyzd_hdist_v3(xyz, max_len)
     print(min(xyz[5]))
     print(max(xyz[5]))
     print(xyz.shape)
