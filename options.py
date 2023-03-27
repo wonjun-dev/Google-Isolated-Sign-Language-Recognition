@@ -12,6 +12,7 @@ parser.add_argument(
 )
 parser.add_argument("--folds", default=5, type=int, help="the number of folds")
 # ========================= Model Configs ==========================
+parser.add_argument("--model_ver", default="v2", type=str, help="version of model")
 parser.add_argument("--max_len", default=80, type=int, help="max length of seqeunce")
 parser.add_argument("--num_points", default=82, type=int, help="the number landmarks")
 parser.add_argument(
@@ -26,9 +27,13 @@ parser.add_argument(
 parser.add_argument(
     "--embed_dim", default=256, type=int, help="the dim of xyz embedding"
 )
+parser.add_argument(
+    "--n_layers", default=2, type=int, help="the number of encoder layer"
+)
 parser.add_argument("--n_head", default=4, type=int, help="the number of multihead")
 parser.add_argument("--ff_dim", default=256, type=int, help="the dim of feedforward")
 parser.add_argument("--dropout", default=0.1, type=float, help="the prob of dropout")
+
 # ========================= Preproc Configs ==========================
 parser.add_argument(
     "--preproc_ver", default="base", type=str, help="version of preprocessing"
@@ -45,6 +50,9 @@ parser.add_argument("--T_mult", default=1, type=int)
 parser.add_argument("--weight_decay", default=1e-2, type=float)
 parser.add_argument("--loss", default="ce", type=str)
 parser.add_argument("--lb", default=0.0, type=float, help="label smoothing alpha")
+parser.add_argument("--s", default=30, type=float, help="arcface scale")
+parser.add_argument("--m", default=0.1, type=float, help="arcface margin")
+parser.add_argument("--gclip", default=None, type=float)
 # ========================= Monitor Configs ==========================
 parser.add_argument("--eval_freq", default=5, type=int, help="evaluation frequency")
 parser.add_argument("--print_freq", default=100, type=int, help="evaluation frequency")

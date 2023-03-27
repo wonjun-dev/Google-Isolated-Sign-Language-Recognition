@@ -10,10 +10,19 @@ from datetime import datetime
 
 from torch.utils.tensorboard import SummaryWriter
 
-from model import ISLRModel, ISLRModelV2
+from model import (
+    ISLRModel,
+    ISLRModelV2,
+    ISLRModelV3,
+    ISLRModelV4,
+    ISLRModelV5,
+    ISLRModelV6,
+    ISLRModelV7,
+)
 from dataset import ISLRDataSetV2, collate_func
 from options import parser
 from utils import AverageMeter, save_checkpoint, accuracy
+from arcface import ArcMarginProduct
 
 os.environ["CUDA_DEVICE_ORDER"] = "PCI_BUS_ID"
 os.environ["CUDA_VISIBLE_DEVICES"] = "7"
@@ -83,14 +92,66 @@ def main():
         )
 
         ####### Model #######
-        model = ISLRModelV2(
-            embed_dim=args.embed_dim,
-            n_head=args.n_head,
-            ff_dim=args.ff_dim,
-            dropout=args.dropout,
-            max_len=args.max_len,
-            input_dim=args.input_dim,
-        )
+        if args.model_ver == "v2":
+            model = ISLRModelV2(
+                embed_dim=args.embed_dim,
+                n_head=args.n_head,
+                ff_dim=args.ff_dim,
+                dropout=args.dropout,
+                max_len=args.max_len,
+                input_dim=args.input_dim,
+            )
+        elif args.model_ver == "v3":
+            model = ISLRModelV3(
+                embed_dim=args.embed_dim,
+                n_head=args.n_head,
+                ff_dim=args.ff_dim,
+                dropout=args.dropout,
+                max_len=args.max_len,
+                input_dim=args.input_dim,
+            )
+        elif args.model_ver == "v4":
+            model = ISLRModelV4(
+                embed_dim=args.embed_dim,
+                n_head=args.n_head,
+                ff_dim=args.ff_dim,
+                dropout=args.dropout,
+                max_len=args.max_len,
+                input_dim=args.input_dim,
+            )
+        elif args.model_ver == "v5":
+            model = ISLRModelV5(
+                embed_dim=args.embed_dim,
+                n_head=args.n_head,
+                ff_dim=args.ff_dim,
+                dropout=args.dropout,
+                max_len=args.max_len,
+                input_dim=args.input_dim,
+            )
+        elif args.model_ver == "v6":
+            model = ISLRModelV6(
+                embed_dim=args.embed_dim,
+                n_head=args.n_head,
+                ff_dim=args.ff_dim,
+                dropout=args.dropout,
+                max_len=args.max_len,
+                n_layers=args.n_layers,
+                input_dim=args.input_dim,
+            )
+        elif args.model_ver == "v7":
+            print("Using ArcFace.")
+            model = ISLRModelV7(
+                embed_dim=args.embed_dim,
+                n_head=args.n_head,
+                ff_dim=args.ff_dim,
+                dropout=args.dropout,
+                max_len=args.max_len,
+                n_layers=args.n_layers,
+                input_dim=args.input_dim,
+                s=args.s,
+                m=args.m,
+            )
+
         try:
             model = nn.DataParallel(model).cuda()
         except:
@@ -114,7 +175,7 @@ def main():
         if args.swa:
             swa_model = AveragedModel(model)
             swa_start = int(args.epochs * 0.75)
-            swa_scheduler = SWALR(optimizer, swa_lr=5e-5)
+            swa_scheduler = SWALR(optimizer, swa_lr=1.5e-4)
 
         ####### Loop #######
         for epoch in range(1, args.epochs + 1):
@@ -161,7 +222,15 @@ def main():
                 tf_writer.close()
 
 
-def train(train_loader, model, criterion, optimizer, epoch, log_training, tf_writer):
+def train(
+    train_loader,
+    model,
+    criterion,
+    optimizer,
+    epoch,
+    log_training,
+    tf_writer,
+):
     losses = AverageMeter()
     accs = AverageMeter()
 
@@ -169,6 +238,7 @@ def train(train_loader, model, criterion, optimizer, epoch, log_training, tf_wri
     for idx, batch in enumerate(train_loader):
         y = batch["label"].cuda()
         output = model(batch)
+
         loss = criterion(output, y)
         acc = accuracy(output, y)
 
@@ -199,7 +269,7 @@ def train(train_loader, model, criterion, optimizer, epoch, log_training, tf_wri
     accs.reset()
 
 
-def validate(val_loader, model, criterion, epoch, log_training, tf_writer):
+def validate(val_loader, model, criterion, epoch, log_training, tf_writer, margin=None):
     losses = AverageMeter()
     accs = AverageMeter()
     model.eval()
@@ -208,6 +278,7 @@ def validate(val_loader, model, criterion, epoch, log_training, tf_writer):
         for batch in val_loader:
             y = batch["label"].cuda()
             output = model(batch)
+
             loss = criterion(output, y)
             acc = accuracy(output, y)
 
