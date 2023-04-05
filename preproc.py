@@ -75,12 +75,88 @@ ARM = [
     510,
     511,
 ]  # [13, 14, 15, 16, 17, 18, 19, 20, 21, 22]
+LARM = [500, 502, 504]  # [11, 13, 15]
+RARM = [501, 503, 505]  # [12, 14, 16]
 POSE = BODY + ARM[:4]
 
 LH_OFFSET = 468
 LHAND = [LH_OFFSET + i for i in range(21)]
 RH_OFFSET = 522
 RHAND = [RH_OFFSET + i for i in range(21)]
+
+# 27 points (https://aclanthology.org/2022.acl-long.150.pdf)
+simple_hand = [0, 4, 5, 8, 9, 12, 13, 16, 17, 20]
+LHAND_SIM = [LH_OFFSET + i for i in simple_hand]
+RHAND_SIM = [RH_OFFSET + i for i in simple_hand]
+
+simple_pose = [0, 1, 4, 11, 12, 13, 14, 15, 16]
+POSE_SIM = [POSE_OFFSET + i for i in simple_pose]
+SPOSE = [POSE_OFFSET + i for i in simple_pose + [23, 24]]
+
+simple_lips = [0, 291, 17, 61, 13, 308, 14, 78]
+SLIP = [
+    78,
+    95,
+    88,
+    178,
+    87,
+    14,
+    317,
+    402,
+    318,
+    324,
+    308,
+    191,
+    80,
+    81,
+    82,
+    13,
+    312,
+    311,
+    310,
+    415,
+]
+REYE = [
+    33,
+    7,
+    163,
+    144,
+    145,
+    153,
+    154,
+    155,
+    133,
+    246,
+    161,
+    160,
+    159,
+    158,
+    157,
+    173,
+]
+LEYE = [
+    263,
+    249,
+    390,
+    373,
+    374,
+    380,
+    381,
+    382,
+    362,
+    466,
+    388,
+    387,
+    386,
+    385,
+    384,
+    398,
+]
+NOSE = [1, 2, 98, 327]
+
+
+def spoter_noramlize(xyz, max_len):
+    pass
 
 
 def preprocess_wonorm(xyz, max_len):
@@ -549,9 +625,9 @@ def preprocess_xyzd_hdist_v5(xyz, max_len):
 def normalize_feature_3d(xyz):
     """
     Args:
-        feat: [None, # landmark, 3]
+        feat: [None, # landmark, 3 or 2]
     Return
-        normalized_feat: [None, # landmark, 3]
+        normalized_feat: [None, # landmark, 3 or 2]
     """
     valid_mask = ~torch.isnan(xyz)
     sum_xyz = torch.nansum(xyz, dim=(0, 1))
@@ -973,6 +1049,9 @@ def preprocess_smooth(xyz, max_len):
 
 
 def preprocess_v2(xyz, max_len):
+    """
+    simplified 27 landmarks
+    """
     L = len(xyz)
     if L > max_len:
         i = (L - max_len) // 2
@@ -981,24 +1060,25 @@ def preprocess_v2(xyz, max_len):
 
     # selection
     # lip_xy = xyz[:, LIP, :2]
-    lhand_xy = xyz[:, LHAND, :2]
-    rhand_xy = xyz[:, RHAND, :2]
-    pose_xy = xyz[:, POSE, :2]
+    overall_xy = xyz[:, POSE_SIM + LHAND_SIM + RHAND_SIM, :2]
+    lhand_xy = xyz[:, LHAND_SIM, :2]
+    rhand_xy = xyz[:, RHAND_SIM, :2]
 
-    # min-max scaling (part-wise)
-    pose_min_x, pose_min_y, pose_max_x, pose_max_y = (
-        torch.min(pose_xy[:, :, 0], dim=1, keepdims=True).values,
-        torch.min(pose_xy[:, :, 1], dim=1, keepdims=True).values,
-        torch.max(pose_xy[:, :, 0], dim=1, keepdims=True).values,
-        torch.max(pose_xy[:, :, 1], dim=1, keepdims=True).values,
+    # 1. min-max scaling (part-wise)
+    # 1-1. overall scaling
+    overall_min_x, overall_min_y, overall_max_x, overall_max_y = (
+        torch.min(overall_xy[:, :, 0], dim=1, keepdims=True).values,
+        torch.min(overall_xy[:, :, 1], dim=1, keepdims=True).values,
+        torch.max(overall_xy[:, :, 0], dim=1, keepdims=True).values,
+        torch.max(overall_xy[:, :, 1], dim=1, keepdims=True).values,
     )
-    pose_min, pose_max = torch.cat((pose_min_x, pose_min_y), dim=-1).unsqueeze(
-        1
-    ), torch.cat((pose_max_x, pose_max_y), dim=-1).unsqueeze(1)
-    pose_xy -= pose_min
-    pose_xy /= pose_max - pose_min
-    pose_center = (pose_max + pose_min) / 2
+    overall_min, overall_max = torch.cat(
+        (overall_min_x, overall_min_y), dim=-1
+    ).unsqueeze(1), torch.cat((overall_max_x, overall_max_y), dim=-1).unsqueeze(1)
+    overall_xy -= overall_min
+    overall_xy /= overall_max - overall_min
 
+    # 1-2. hand scaling
     lhand_min_x, lhand_min_y, lhand_max_x, lhand_max_y = (
         torch.min(lhand_xy[:, :, 0], dim=1, keepdims=True).values,
         torch.min(lhand_xy[:, :, 1], dim=1, keepdims=True).values,
@@ -1010,7 +1090,6 @@ def preprocess_v2(xyz, max_len):
     ), torch.cat((lhand_max_x, lhand_max_y), dim=-1).unsqueeze(1)
     lhand_xy -= lhand_min
     lhand_xy /= lhand_max - lhand_min
-    lhand_center = (lhand_max + lhand_min) / 2
 
     rhand_min_x, rhand_min_y, rhand_max_x, rhand_max_y = (
         torch.min(rhand_xy[:, :, 0], dim=1, keepdims=True).values,
@@ -1022,18 +1101,1555 @@ def preprocess_v2(xyz, max_len):
         1
     ), torch.cat((rhand_max_x, rhand_max_y), dim=-1).unsqueeze(1)
     rhand_xy -= rhand_min
-    rhand_xy /= rhand_max - rhand_min  # [None, 21, 2]
+    rhand_xy /= rhand_max - rhand_min  # [None, 10, 2]
+
+    # 2. location
+    overall_center = (overall_max + overall_min) / 2
+    lhand_center = (lhand_max + lhand_min) / 2
     rhand_center = (rhand_max + rhand_min) / 2  # [None, 1, 2]
 
     x = torch.cat(
         [
-            pose_xy.reshape(L, -1),
+            overall_xy.reshape(L, -1),
             lhand_xy.reshape(L, -1),
             rhand_xy.reshape(L, -1),
-            pose_center.reshape(L, -1),
+            overall_center.reshape(L, -1),
             lhand_center.reshape(L, -1),
             rhand_center.reshape(L, -1),
-        ],  # (none, 128)
+        ],  # (none, 100)
+        -1,
+    )
+    x[torch.isnan(x)] = 0
+    return x
+
+
+def preprocess_v3(xyz, max_len):
+    """
+    v2 + lips
+    """
+    L = len(xyz)
+    if L > max_len:
+        i = (L - max_len) // 2
+        xyz = xyz[i : i + max_len]
+    L = len(xyz)
+
+    # selection
+    overall_xy = xyz[:, POSE_SIM + LHAND_SIM + RHAND_SIM + simple_lips, :2]
+    lhand_xy = xyz[:, LHAND_SIM, :2]
+    rhand_xy = xyz[:, RHAND_SIM, :2]
+    lip_xy = xyz[:, simple_lips, :2]
+
+    # 1. min-max scaling (part-wise)
+    # 1-1. overall scaling
+    overall_min_x, overall_min_y, overall_max_x, overall_max_y = (
+        torch.min(overall_xy[:, :, 0], dim=1, keepdims=True).values,
+        torch.min(overall_xy[:, :, 1], dim=1, keepdims=True).values,
+        torch.max(overall_xy[:, :, 0], dim=1, keepdims=True).values,
+        torch.max(overall_xy[:, :, 1], dim=1, keepdims=True).values,
+    )
+    overall_min, overall_max = torch.cat(
+        (overall_min_x, overall_min_y), dim=-1
+    ).unsqueeze(1), torch.cat((overall_max_x, overall_max_y), dim=-1).unsqueeze(1)
+    overall_xy -= overall_min
+    overall_xy /= overall_max - overall_min
+
+    # 1-2. hand scaling
+    lhand_min_x, lhand_min_y, lhand_max_x, lhand_max_y = (
+        torch.min(lhand_xy[:, :, 0], dim=1, keepdims=True).values,
+        torch.min(lhand_xy[:, :, 1], dim=1, keepdims=True).values,
+        torch.max(lhand_xy[:, :, 0], dim=1, keepdims=True).values,
+        torch.max(lhand_xy[:, :, 1], dim=1, keepdims=True).values,
+    )
+    lhand_min, lhand_max = torch.cat((lhand_min_x, lhand_min_y), dim=-1).unsqueeze(
+        1
+    ), torch.cat((lhand_max_x, lhand_max_y), dim=-1).unsqueeze(1)
+    lhand_xy -= lhand_min
+    lhand_xy /= lhand_max - lhand_min
+
+    rhand_min_x, rhand_min_y, rhand_max_x, rhand_max_y = (
+        torch.min(rhand_xy[:, :, 0], dim=1, keepdims=True).values,
+        torch.min(rhand_xy[:, :, 1], dim=1, keepdims=True).values,
+        torch.max(rhand_xy[:, :, 0], dim=1, keepdims=True).values,
+        torch.max(rhand_xy[:, :, 1], dim=1, keepdims=True).values,
+    )
+    rhand_min, rhand_max = torch.cat((rhand_min_x, rhand_min_y), dim=-1).unsqueeze(
+        1
+    ), torch.cat((rhand_max_x, rhand_max_y), dim=-1).unsqueeze(1)
+    rhand_xy -= rhand_min
+    rhand_xy /= rhand_max - rhand_min  # [None, 10, 2]
+
+    lip_min_x, lip_min_y, lip_max_x, lip_max_y = (
+        torch.min(lip_xy[:, :, 0], dim=1, keepdims=True).values,
+        torch.min(lip_xy[:, :, 1], dim=1, keepdims=True).values,
+        torch.max(lip_xy[:, :, 0], dim=1, keepdims=True).values,
+        torch.max(lip_xy[:, :, 1], dim=1, keepdims=True).values,
+    )
+    lip_min, lip_max = torch.cat((lip_min_x, lip_min_y), dim=-1).unsqueeze(
+        1
+    ), torch.cat((lip_max_x, lip_max_y), dim=-1).unsqueeze(1)
+    lip_xy -= lip_min
+    lip_xy /= lip_max - lip_min  # [None, 10, 2]
+
+    # 2. location
+    overall_center = (overall_max + overall_min) / 2
+    lhand_center = (lhand_max + lhand_min) / 2
+    rhand_center = (rhand_max + rhand_min) / 2  # [None, 1, 2]
+    lip_center = (lip_max + lip_min) / 2
+
+    x = torch.cat(
+        [
+            overall_xy.reshape(L, -1),
+            lhand_xy.reshape(L, -1),
+            rhand_xy.reshape(L, -1),
+            lip_xy.reshape(L, -1),
+            overall_center.reshape(L, -1),
+            lhand_center.reshape(L, -1),
+            rhand_center.reshape(L, -1),
+            lip_center.reshape(L, -1),
+        ],  # (none, 134)
+        -1,
+    )
+    x[torch.isnan(x)] = 0
+    return x
+
+
+def preprocess_v4(xyz, max_len):
+    """
+    v3 + 손 temporal 변화 (속도)
+    """
+    L = len(xyz)
+    if L > max_len:
+        i = (L - max_len) // 2
+        xyz = xyz[i : i + max_len]
+    L = len(xyz)
+
+    # selection
+    overall_xy = xyz[:, POSE_SIM + LHAND_SIM + RHAND_SIM + simple_lips, :2]
+    lhand_xy = xyz[:, LHAND_SIM, :2]
+    rhand_xy = xyz[:, RHAND_SIM, :2]
+    lip_xy = xyz[:, simple_lips, :2]
+
+    # 1. min-max scaling (part-wise)
+    # 1-1. overall scaling
+    overall_min_x, overall_min_y, overall_max_x, overall_max_y = (
+        torch.min(overall_xy[:, :, 0], dim=1, keepdims=True).values,
+        torch.min(overall_xy[:, :, 1], dim=1, keepdims=True).values,
+        torch.max(overall_xy[:, :, 0], dim=1, keepdims=True).values,
+        torch.max(overall_xy[:, :, 1], dim=1, keepdims=True).values,
+    )
+    overall_min, overall_max = torch.cat(
+        (overall_min_x, overall_min_y), dim=-1
+    ).unsqueeze(1), torch.cat((overall_max_x, overall_max_y), dim=-1).unsqueeze(1)
+    overall_scaled_xy = overall_xy - overall_min
+    overall_scaled_xy /= overall_max - overall_min
+
+    # 1-2. hand scaling
+    lhand_min_x, lhand_min_y, lhand_max_x, lhand_max_y = (
+        torch.min(lhand_xy[:, :, 0], dim=1, keepdims=True).values,
+        torch.min(lhand_xy[:, :, 1], dim=1, keepdims=True).values,
+        torch.max(lhand_xy[:, :, 0], dim=1, keepdims=True).values,
+        torch.max(lhand_xy[:, :, 1], dim=1, keepdims=True).values,
+    )
+    lhand_min, lhand_max = torch.cat((lhand_min_x, lhand_min_y), dim=-1).unsqueeze(
+        1
+    ), torch.cat((lhand_max_x, lhand_max_y), dim=-1).unsqueeze(1)
+    lhand_scaled_xy = lhand_xy - lhand_min
+    lhand_scaled_xy /= lhand_max - lhand_min
+
+    rhand_min_x, rhand_min_y, rhand_max_x, rhand_max_y = (
+        torch.min(rhand_xy[:, :, 0], dim=1, keepdims=True).values,
+        torch.min(rhand_xy[:, :, 1], dim=1, keepdims=True).values,
+        torch.max(rhand_xy[:, :, 0], dim=1, keepdims=True).values,
+        torch.max(rhand_xy[:, :, 1], dim=1, keepdims=True).values,
+    )
+    rhand_min, rhand_max = torch.cat((rhand_min_x, rhand_min_y), dim=-1).unsqueeze(
+        1
+    ), torch.cat((rhand_max_x, rhand_max_y), dim=-1).unsqueeze(1)
+    rhand_scaled_xy = rhand_xy - rhand_min
+    rhand_scaled_xy /= rhand_max - rhand_min  # [None, 10, 2]
+
+    lip_min_x, lip_min_y, lip_max_x, lip_max_y = (
+        torch.min(lip_xy[:, :, 0], dim=1, keepdims=True).values,
+        torch.min(lip_xy[:, :, 1], dim=1, keepdims=True).values,
+        torch.max(lip_xy[:, :, 0], dim=1, keepdims=True).values,
+        torch.max(lip_xy[:, :, 1], dim=1, keepdims=True).values,
+    )
+    lip_min, lip_max = torch.cat((lip_min_x, lip_min_y), dim=-1).unsqueeze(
+        1
+    ), torch.cat((lip_max_x, lip_max_y), dim=-1).unsqueeze(1)
+    lip_scaled_xy = lip_xy - lip_min
+    lip_scaled_xy /= lip_max - lip_min  # [None, 10, 2]
+
+    # 2. location
+    overall_center = (overall_max + overall_min) / 2
+    lhand_center = (lhand_max + lhand_min) / 2
+    rhand_center = (rhand_max + rhand_min) / 2  # [None, 1, 2]
+    lip_center = (lip_max + lip_min) / 2
+
+    # 3. 손 좌표 gobal 위치 temporal 변화 (속도)
+    lhand_dxy = lhand_xy[:-1] - lhand_xy[1:]
+    lhand_dxy = torch.from_numpy(np.pad(lhand_dxy, [[0, 1], [0, 0], [0, 0]]))
+    rhand_dxy = rhand_xy[:-1] - rhand_xy[1:]
+    rhand_dxy = torch.from_numpy(np.pad(rhand_dxy, [[0, 1], [0, 0], [0, 0]]))
+
+    x = torch.cat(
+        [
+            overall_scaled_xy.reshape(L, -1),  # scaled position
+            lhand_scaled_xy.reshape(L, -1),
+            rhand_scaled_xy.reshape(L, -1),
+            lip_scaled_xy.reshape(L, -1),
+            overall_center.reshape(L, -1),  # global location of bbox
+            lhand_center.reshape(L, -1),
+            rhand_center.reshape(L, -1),
+            lip_center.reshape(L, -1),
+            lhand_dxy.reshape(L, -1),  # velocity of hand landmarks
+            rhand_dxy.reshape(L, -1),
+        ],  # (none, 174)
+        -1,
+    )
+    x[torch.isnan(x)] = 0
+    return x
+
+
+def preprocess_v5(xyz, max_len):
+    """
+    v4 + 손 관절 사이의 거리 (hdist)
+    """
+    L = len(xyz)
+    if L > max_len:
+        i = (L - max_len) // 2
+        xyz = xyz[i : i + max_len]
+    L = len(xyz)
+
+    # selection
+    overall_xy = xyz[:, POSE_SIM + LHAND_SIM + RHAND_SIM + simple_lips, :2]
+    lhand_xy = xyz[:, LHAND_SIM, :2]
+    rhand_xy = xyz[:, RHAND_SIM, :2]
+    lip_xy = xyz[:, simple_lips, :2]
+
+    # 1. min-max scaling (part-wise)
+    # 1-1. overall scaling
+    overall_min_x, overall_min_y, overall_max_x, overall_max_y = (
+        torch.min(overall_xy[:, :, 0], dim=1, keepdims=True).values,
+        torch.min(overall_xy[:, :, 1], dim=1, keepdims=True).values,
+        torch.max(overall_xy[:, :, 0], dim=1, keepdims=True).values,
+        torch.max(overall_xy[:, :, 1], dim=1, keepdims=True).values,
+    )
+    overall_min, overall_max = torch.cat(
+        (overall_min_x, overall_min_y), dim=-1
+    ).unsqueeze(1), torch.cat((overall_max_x, overall_max_y), dim=-1).unsqueeze(1)
+    overall_scaled_xy = overall_xy - overall_min
+    overall_scaled_xy /= overall_max - overall_min
+
+    # 1-2. hand scaling
+    lhand_min_x, lhand_min_y, lhand_max_x, lhand_max_y = (
+        torch.min(lhand_xy[:, :, 0], dim=1, keepdims=True).values,
+        torch.min(lhand_xy[:, :, 1], dim=1, keepdims=True).values,
+        torch.max(lhand_xy[:, :, 0], dim=1, keepdims=True).values,
+        torch.max(lhand_xy[:, :, 1], dim=1, keepdims=True).values,
+    )
+    lhand_min, lhand_max = torch.cat((lhand_min_x, lhand_min_y), dim=-1).unsqueeze(
+        1
+    ), torch.cat((lhand_max_x, lhand_max_y), dim=-1).unsqueeze(1)
+    lhand_scaled_xy = lhand_xy - lhand_min
+    lhand_scaled_xy /= lhand_max - lhand_min
+
+    rhand_min_x, rhand_min_y, rhand_max_x, rhand_max_y = (
+        torch.min(rhand_xy[:, :, 0], dim=1, keepdims=True).values,
+        torch.min(rhand_xy[:, :, 1], dim=1, keepdims=True).values,
+        torch.max(rhand_xy[:, :, 0], dim=1, keepdims=True).values,
+        torch.max(rhand_xy[:, :, 1], dim=1, keepdims=True).values,
+    )
+    rhand_min, rhand_max = torch.cat((rhand_min_x, rhand_min_y), dim=-1).unsqueeze(
+        1
+    ), torch.cat((rhand_max_x, rhand_max_y), dim=-1).unsqueeze(1)
+    rhand_scaled_xy = rhand_xy - rhand_min
+    rhand_scaled_xy /= rhand_max - rhand_min  # [None, 10, 2]
+
+    lip_min_x, lip_min_y, lip_max_x, lip_max_y = (
+        torch.min(lip_xy[:, :, 0], dim=1, keepdims=True).values,
+        torch.min(lip_xy[:, :, 1], dim=1, keepdims=True).values,
+        torch.max(lip_xy[:, :, 0], dim=1, keepdims=True).values,
+        torch.max(lip_xy[:, :, 1], dim=1, keepdims=True).values,
+    )
+    lip_min, lip_max = torch.cat((lip_min_x, lip_min_y), dim=-1).unsqueeze(
+        1
+    ), torch.cat((lip_max_x, lip_max_y), dim=-1).unsqueeze(1)
+    lip_scaled_xy = lip_xy - lip_min
+    lip_scaled_xy /= lip_max - lip_min  # [None, 10, 2]
+
+    # 2. location
+    overall_center = (overall_max + overall_min) / 2
+    lhand_center = (lhand_max + lhand_min) / 2
+    rhand_center = (rhand_max + rhand_min) / 2  # [None, 1, 2]
+    lip_center = (lip_max + lip_min) / 2
+
+    # 3. 손 좌표 gobal 위치 temporal 변화 (속도)
+    lhand_dxy = lhand_xy[:-1] - lhand_xy[1:]
+    lhand_dxy = torch.from_numpy(np.pad(lhand_dxy, [[0, 1], [0, 0], [0, 0]]))
+    rhand_dxy = rhand_xy[:-1] - rhand_xy[1:]
+    rhand_dxy = torch.from_numpy(np.pad(rhand_dxy, [[0, 1], [0, 0], [0, 0]]))
+
+    # 4. 손 scaled 좌표 사이의 거리
+    mask = torch.tril(torch.ones(L, 10, 10, dtype=torch.bool), diagonal=-1)
+    ld = lhand_scaled_xy.reshape(-1, 10, 1, 2) - lhand_scaled_xy.reshape(-1, 1, 10, 2)
+    ld = torch.sqrt((ld**2).sum(-1))
+    ld = ld.masked_select(mask)
+
+    rd = rhand_scaled_xy.reshape(-1, 10, 1, 2) - rhand_scaled_xy.reshape(-1, 1, 10, 2)
+    rd = torch.sqrt((rd**2).sum(-1))
+    rd = rd.masked_select(mask)
+
+    x = torch.cat(
+        [
+            overall_scaled_xy.reshape(L, -1),  # scaled position
+            lhand_scaled_xy.reshape(L, -1),
+            rhand_scaled_xy.reshape(L, -1),
+            lip_scaled_xy.reshape(L, -1),
+            overall_center.reshape(L, -1),  # global location of bbox
+            lhand_center.reshape(L, -1),
+            rhand_center.reshape(L, -1),
+            lip_center.reshape(L, -1),
+            lhand_dxy.reshape(L, -1),  # velocity of global hand landmarks
+            rhand_dxy.reshape(L, -1),
+            ld.reshape(L, -1),  # distance between scalsed hand landmarks
+            rd.reshape(L, -1),
+        ],  # (none, 264)
+        -1,
+    )
+    x[torch.isnan(x)] = 0
+    return x
+
+
+def preprocess_v6(xyz, max_len):
+    """
+    x, y 정규화 + v5
+    """
+    L = len(xyz)
+    if L > max_len:
+        i = (L - max_len) // 2
+        xyz = xyz[i : i + max_len]
+    L = len(xyz)
+
+    # selection
+    overall_xy = xyz[:, LHAND_SIM + RHAND_SIM + simple_lips + POSE_SIM, :2]
+    overall_xy = normalize_feature_3d(overall_xy)
+
+    lhand_xy = overall_xy[:, : len(LHAND_SIM), :2]
+    rhand_xy = overall_xy[:, len(LHAND_SIM) : len(LHAND_SIM) + len(RHAND_SIM), :2]
+    lip_xy = overall_xy[
+        :,
+        len(LHAND_SIM)
+        + len(RHAND_SIM) : len(LHAND_SIM)
+        + len(RHAND_SIM)
+        + len(simple_lips),
+        :2,
+    ]
+
+    # 1. min-max scaling (part-wise)
+    # 1-1. overall scaling
+    overall_min_x, overall_min_y, overall_max_x, overall_max_y = (
+        torch.min(overall_xy[:, :, 0], dim=1, keepdims=True).values,
+        torch.min(overall_xy[:, :, 1], dim=1, keepdims=True).values,
+        torch.max(overall_xy[:, :, 0], dim=1, keepdims=True).values,
+        torch.max(overall_xy[:, :, 1], dim=1, keepdims=True).values,
+    )
+    overall_min, overall_max = torch.cat(
+        (overall_min_x, overall_min_y), dim=-1
+    ).unsqueeze(1), torch.cat((overall_max_x, overall_max_y), dim=-1).unsqueeze(1)
+    overall_scaled_xy = overall_xy - overall_min
+    overall_scaled_xy /= overall_max - overall_min
+    overall_scaled_xy -= 0.5
+
+    # 1-2. hand scaling
+    lhand_min_x, lhand_min_y, lhand_max_x, lhand_max_y = (
+        torch.min(lhand_xy[:, :, 0], dim=1, keepdims=True).values,
+        torch.min(lhand_xy[:, :, 1], dim=1, keepdims=True).values,
+        torch.max(lhand_xy[:, :, 0], dim=1, keepdims=True).values,
+        torch.max(lhand_xy[:, :, 1], dim=1, keepdims=True).values,
+    )
+    lhand_min, lhand_max = torch.cat((lhand_min_x, lhand_min_y), dim=-1).unsqueeze(
+        1
+    ), torch.cat((lhand_max_x, lhand_max_y), dim=-1).unsqueeze(1)
+    lhand_scaled_xy = lhand_xy - lhand_min
+    lhand_scaled_xy /= lhand_max - lhand_min
+    lhand_scaled_xy -= 0.5
+
+    rhand_min_x, rhand_min_y, rhand_max_x, rhand_max_y = (
+        torch.min(rhand_xy[:, :, 0], dim=1, keepdims=True).values,
+        torch.min(rhand_xy[:, :, 1], dim=1, keepdims=True).values,
+        torch.max(rhand_xy[:, :, 0], dim=1, keepdims=True).values,
+        torch.max(rhand_xy[:, :, 1], dim=1, keepdims=True).values,
+    )
+    rhand_min, rhand_max = torch.cat((rhand_min_x, rhand_min_y), dim=-1).unsqueeze(
+        1
+    ), torch.cat((rhand_max_x, rhand_max_y), dim=-1).unsqueeze(1)
+    rhand_scaled_xy = rhand_xy - rhand_min
+    rhand_scaled_xy /= rhand_max - rhand_min  # [None, 10, 2]
+    rhand_scaled_xy -= 0.5
+
+    lip_min_x, lip_min_y, lip_max_x, lip_max_y = (
+        torch.min(lip_xy[:, :, 0], dim=1, keepdims=True).values,
+        torch.min(lip_xy[:, :, 1], dim=1, keepdims=True).values,
+        torch.max(lip_xy[:, :, 0], dim=1, keepdims=True).values,
+        torch.max(lip_xy[:, :, 1], dim=1, keepdims=True).values,
+    )
+    lip_min, lip_max = torch.cat((lip_min_x, lip_min_y), dim=-1).unsqueeze(
+        1
+    ), torch.cat((lip_max_x, lip_max_y), dim=-1).unsqueeze(1)
+    lip_scaled_xy = lip_xy - lip_min
+    lip_scaled_xy /= lip_max - lip_min  # [None, 8, 2]
+    lip_scaled_xy -= 0.5
+
+    # 2. global location
+    overall_center = (overall_max + overall_min) / 2
+    lhand_center = (lhand_max + lhand_min) / 2
+    rhand_center = (rhand_max + rhand_min) / 2  # [None, 1, 2]
+    lip_center = (lip_max + lip_min) / 2
+
+    # 3. 손 좌표 gobal 위치 temporal 변화 (속도)
+    lhand_dxy = lhand_xy[:-1] - lhand_xy[1:]
+    lhand_dxy = torch.from_numpy(np.pad(lhand_dxy, [[0, 1], [0, 0], [0, 0]]))
+    rhand_dxy = rhand_xy[:-1] - rhand_xy[1:]
+    rhand_dxy = torch.from_numpy(np.pad(rhand_dxy, [[0, 1], [0, 0], [0, 0]]))
+
+    # 4. 손 scaled 좌표 사이의 거리
+    mask = torch.tril(torch.ones(L, 10, 10, dtype=torch.bool), diagonal=-1)
+    ld = lhand_scaled_xy.reshape(-1, 10, 1, 2) - lhand_scaled_xy.reshape(-1, 1, 10, 2)
+    ld = torch.sqrt((ld**2).sum(-1))
+    ld = ld.masked_select(mask)
+
+    rd = rhand_scaled_xy.reshape(-1, 10, 1, 2) - rhand_scaled_xy.reshape(-1, 1, 10, 2)
+    rd = torch.sqrt((rd**2).sum(-1))
+    rd = rd.masked_select(mask)
+
+    x = torch.cat(
+        [
+            overall_scaled_xy.reshape(L, -1),  # scaled position
+            lhand_scaled_xy.reshape(L, -1),
+            rhand_scaled_xy.reshape(L, -1),
+            lip_scaled_xy.reshape(L, -1),
+            overall_center.reshape(L, -1),  # global location of bbox
+            lhand_center.reshape(L, -1),
+            rhand_center.reshape(L, -1),
+            lip_center.reshape(L, -1),
+            lhand_dxy.reshape(L, -1),  # velocity of global hand landmarks
+            rhand_dxy.reshape(L, -1),
+            ld.reshape(L, -1),  # distance between scalsed hand landmarks
+            rd.reshape(L, -1),
+        ],  # (none, 264)
+        -1,
+    )
+    x[torch.isnan(x)] = 0
+    return x
+
+
+def preprocess_v7(xyz, max_len):
+    """
+    v6 + normalized overall, hand velocity -> overall velocity
+    """
+    L = len(xyz)
+    if L > max_len:
+        i = (L - max_len) // 2
+        xyz = xyz[i : i + max_len]
+    L = len(xyz)
+
+    # selection
+    overall_xy = xyz[:, LHAND_SIM + RHAND_SIM + simple_lips + POSE_SIM, :2]
+    overall_xy = normalize_feature_3d(overall_xy)
+
+    lhand_xy = overall_xy[:, : len(LHAND_SIM), :2]
+    rhand_xy = overall_xy[:, len(LHAND_SIM) : len(LHAND_SIM) + len(RHAND_SIM), :2]
+    lip_xy = overall_xy[
+        :,
+        len(LHAND_SIM)
+        + len(RHAND_SIM) : len(LHAND_SIM)
+        + len(RHAND_SIM)
+        + len(simple_lips),
+        :2,
+    ]
+
+    # 1. min-max scaling (part-wise)
+    # 1-1. overall scaling
+    overall_min_x, overall_min_y, overall_max_x, overall_max_y = (
+        torch.min(overall_xy[:, :, 0], dim=1, keepdims=True).values,
+        torch.min(overall_xy[:, :, 1], dim=1, keepdims=True).values,
+        torch.max(overall_xy[:, :, 0], dim=1, keepdims=True).values,
+        torch.max(overall_xy[:, :, 1], dim=1, keepdims=True).values,
+    )
+    overall_min, overall_max = torch.cat(
+        (overall_min_x, overall_min_y), dim=-1
+    ).unsqueeze(1), torch.cat((overall_max_x, overall_max_y), dim=-1).unsqueeze(1)
+    overall_scaled_xy = overall_xy - overall_min
+    overall_scaled_xy /= overall_max - overall_min
+    overall_scaled_xy -= 0.5
+
+    # 1-2. hand scaling
+    lhand_min_x, lhand_min_y, lhand_max_x, lhand_max_y = (
+        torch.min(lhand_xy[:, :, 0], dim=1, keepdims=True).values,
+        torch.min(lhand_xy[:, :, 1], dim=1, keepdims=True).values,
+        torch.max(lhand_xy[:, :, 0], dim=1, keepdims=True).values,
+        torch.max(lhand_xy[:, :, 1], dim=1, keepdims=True).values,
+    )
+    lhand_min, lhand_max = torch.cat((lhand_min_x, lhand_min_y), dim=-1).unsqueeze(
+        1
+    ), torch.cat((lhand_max_x, lhand_max_y), dim=-1).unsqueeze(1)
+    lhand_scaled_xy = lhand_xy - lhand_min
+    lhand_scaled_xy /= lhand_max - lhand_min
+    lhand_scaled_xy -= 0.5
+
+    rhand_min_x, rhand_min_y, rhand_max_x, rhand_max_y = (
+        torch.min(rhand_xy[:, :, 0], dim=1, keepdims=True).values,
+        torch.min(rhand_xy[:, :, 1], dim=1, keepdims=True).values,
+        torch.max(rhand_xy[:, :, 0], dim=1, keepdims=True).values,
+        torch.max(rhand_xy[:, :, 1], dim=1, keepdims=True).values,
+    )
+    rhand_min, rhand_max = torch.cat((rhand_min_x, rhand_min_y), dim=-1).unsqueeze(
+        1
+    ), torch.cat((rhand_max_x, rhand_max_y), dim=-1).unsqueeze(1)
+    rhand_scaled_xy = rhand_xy - rhand_min
+    rhand_scaled_xy /= rhand_max - rhand_min  # [None, 10, 2]
+    rhand_scaled_xy -= 0.5
+
+    lip_min_x, lip_min_y, lip_max_x, lip_max_y = (
+        torch.min(lip_xy[:, :, 0], dim=1, keepdims=True).values,
+        torch.min(lip_xy[:, :, 1], dim=1, keepdims=True).values,
+        torch.max(lip_xy[:, :, 0], dim=1, keepdims=True).values,
+        torch.max(lip_xy[:, :, 1], dim=1, keepdims=True).values,
+    )
+    lip_min, lip_max = torch.cat((lip_min_x, lip_min_y), dim=-1).unsqueeze(
+        1
+    ), torch.cat((lip_max_x, lip_max_y), dim=-1).unsqueeze(1)
+    lip_scaled_xy = lip_xy - lip_min
+    lip_scaled_xy /= lip_max - lip_min  # [None, 8, 2]
+    lip_scaled_xy -= 0.5
+
+    # 2. global location
+    overall_center = (overall_max + overall_min) / 2
+    lhand_center = (lhand_max + lhand_min) / 2
+    rhand_center = (rhand_max + rhand_min) / 2  # [None, 1, 2]
+    lip_center = (lip_max + lip_min) / 2
+
+    # 3. 좌표 global 위치 temporal 변화 (속도)
+    overall_dxy = overall_xy[:-1] - overall_xy[1:]
+    overall_dxy = torch.from_numpy(np.pad(overall_dxy, [[0, 1], [0, 0], [0, 0]]))
+
+    # 4. 손 scaled 좌표 사이의 거리
+    mask = torch.tril(torch.ones(L, 10, 10, dtype=torch.bool), diagonal=-1)
+    ld = lhand_scaled_xy.reshape(-1, 10, 1, 2) - lhand_scaled_xy.reshape(-1, 1, 10, 2)
+    ld = torch.sqrt((ld**2).sum(-1))
+    ld = ld.masked_select(mask)
+
+    rd = rhand_scaled_xy.reshape(-1, 10, 1, 2) - rhand_scaled_xy.reshape(-1, 1, 10, 2)
+    rd = torch.sqrt((rd**2).sum(-1))
+    rd = rd.masked_select(mask)
+
+    x = torch.cat(
+        [
+            overall_xy.reshape(L, -1),  # normalized landmark
+            overall_scaled_xy.reshape(L, -1),  # scaled position
+            lhand_scaled_xy.reshape(L, -1),
+            rhand_scaled_xy.reshape(L, -1),
+            lip_scaled_xy.reshape(L, -1),
+            overall_center.reshape(L, -1),  # global location of bbox
+            lhand_center.reshape(L, -1),
+            rhand_center.reshape(L, -1),
+            lip_center.reshape(L, -1),
+            overall_dxy.reshape(L, -1),  # velocity of global landmarks
+            ld.reshape(L, -1),  # distance between scalsed hand landmarks
+            rd.reshape(L, -1),
+        ],  # (none, 364)
+        -1,
+    )
+    x[torch.isnan(x)] = 0
+    return x
+
+
+def preprocess_v8(xyz, max_len):
+    """
+    v7 + ld, rd -> global 기준
+    """
+    L = len(xyz)
+    if L > max_len:
+        i = (L - max_len) // 2
+        xyz = xyz[i : i + max_len]
+    L = len(xyz)
+
+    # selection
+    overall_xy = xyz[:, LHAND_SIM + RHAND_SIM + simple_lips + POSE_SIM, :2]
+    overall_xy = normalize_feature_3d(overall_xy)
+
+    lhand_xy = overall_xy[:, : len(LHAND_SIM), :2]
+    rhand_xy = overall_xy[:, len(LHAND_SIM) : len(LHAND_SIM) + len(RHAND_SIM), :2]
+    lip_xy = overall_xy[
+        :,
+        len(LHAND_SIM)
+        + len(RHAND_SIM) : len(LHAND_SIM)
+        + len(RHAND_SIM)
+        + len(simple_lips),
+        :2,
+    ]
+
+    # 1. min-max scaling (part-wise)
+    # 1-1. overall scaling
+    overall_min_x, overall_min_y, overall_max_x, overall_max_y = (
+        torch.min(overall_xy[:, :, 0], dim=1, keepdims=True).values,
+        torch.min(overall_xy[:, :, 1], dim=1, keepdims=True).values,
+        torch.max(overall_xy[:, :, 0], dim=1, keepdims=True).values,
+        torch.max(overall_xy[:, :, 1], dim=1, keepdims=True).values,
+    )
+    overall_min, overall_max = torch.cat(
+        (overall_min_x, overall_min_y), dim=-1
+    ).unsqueeze(1), torch.cat((overall_max_x, overall_max_y), dim=-1).unsqueeze(1)
+    overall_scaled_xy = overall_xy - overall_min
+    overall_scaled_xy /= overall_max - overall_min
+    overall_scaled_xy -= 0.5
+
+    # 1-2. hand scaling
+    lhand_min_x, lhand_min_y, lhand_max_x, lhand_max_y = (
+        torch.min(lhand_xy[:, :, 0], dim=1, keepdims=True).values,
+        torch.min(lhand_xy[:, :, 1], dim=1, keepdims=True).values,
+        torch.max(lhand_xy[:, :, 0], dim=1, keepdims=True).values,
+        torch.max(lhand_xy[:, :, 1], dim=1, keepdims=True).values,
+    )
+    lhand_min, lhand_max = torch.cat((lhand_min_x, lhand_min_y), dim=-1).unsqueeze(
+        1
+    ), torch.cat((lhand_max_x, lhand_max_y), dim=-1).unsqueeze(1)
+    lhand_scaled_xy = lhand_xy - lhand_min
+    lhand_scaled_xy /= lhand_max - lhand_min
+    lhand_scaled_xy -= 0.5
+
+    rhand_min_x, rhand_min_y, rhand_max_x, rhand_max_y = (
+        torch.min(rhand_xy[:, :, 0], dim=1, keepdims=True).values,
+        torch.min(rhand_xy[:, :, 1], dim=1, keepdims=True).values,
+        torch.max(rhand_xy[:, :, 0], dim=1, keepdims=True).values,
+        torch.max(rhand_xy[:, :, 1], dim=1, keepdims=True).values,
+    )
+    rhand_min, rhand_max = torch.cat((rhand_min_x, rhand_min_y), dim=-1).unsqueeze(
+        1
+    ), torch.cat((rhand_max_x, rhand_max_y), dim=-1).unsqueeze(1)
+    rhand_scaled_xy = rhand_xy - rhand_min
+    rhand_scaled_xy /= rhand_max - rhand_min  # [None, 10, 2]
+    rhand_scaled_xy -= 0.5
+
+    lip_min_x, lip_min_y, lip_max_x, lip_max_y = (
+        torch.min(lip_xy[:, :, 0], dim=1, keepdims=True).values,
+        torch.min(lip_xy[:, :, 1], dim=1, keepdims=True).values,
+        torch.max(lip_xy[:, :, 0], dim=1, keepdims=True).values,
+        torch.max(lip_xy[:, :, 1], dim=1, keepdims=True).values,
+    )
+    lip_min, lip_max = torch.cat((lip_min_x, lip_min_y), dim=-1).unsqueeze(
+        1
+    ), torch.cat((lip_max_x, lip_max_y), dim=-1).unsqueeze(1)
+    lip_scaled_xy = lip_xy - lip_min
+    lip_scaled_xy /= lip_max - lip_min  # [None, 8, 2]
+    lip_scaled_xy -= 0.5
+
+    # 2. global location
+    overall_center = (overall_max + overall_min) / 2
+    lhand_center = (lhand_max + lhand_min) / 2
+    rhand_center = (rhand_max + rhand_min) / 2  # [None, 1, 2]
+    lip_center = (lip_max + lip_min) / 2
+
+    # 3. 좌표 global 위치 temporal 변화 (속도)
+    overall_dxy = overall_xy[:-1] - overall_xy[1:]
+    overall_dxy = torch.from_numpy(np.pad(overall_dxy, [[0, 1], [0, 0], [0, 0]]))
+
+    # 4. 손 global 좌표 사이의 거리
+    mask = torch.tril(torch.ones(L, 10, 10, dtype=torch.bool), diagonal=-1)
+    ld = lhand_xy.reshape(-1, 10, 1, 2) - lhand_xy.reshape(-1, 1, 10, 2)
+    ld = torch.sqrt((ld**2).sum(-1))
+    ld = ld.masked_select(mask)
+
+    rd = rhand_xy.reshape(-1, 10, 1, 2) - rhand_xy.reshape(-1, 1, 10, 2)
+    rd = torch.sqrt((rd**2).sum(-1))
+    rd = rd.masked_select(mask)
+
+    x = torch.cat(
+        [
+            overall_xy.reshape(L, -1),  # normalized landmark
+            overall_scaled_xy.reshape(L, -1),  # scaled position
+            lhand_scaled_xy.reshape(L, -1),
+            rhand_scaled_xy.reshape(L, -1),
+            lip_scaled_xy.reshape(L, -1),
+            overall_center.reshape(L, -1),  # global location of bbox
+            lhand_center.reshape(L, -1),
+            rhand_center.reshape(L, -1),
+            lip_center.reshape(L, -1),
+            overall_dxy.reshape(L, -1),  # velocity of global landmarks
+            ld.reshape(L, -1),  # distance between hand global landmarks
+            rd.reshape(L, -1),
+        ],  # (none, 364)
+        -1,
+    )
+    x[torch.isnan(x)] = 0
+    return x
+
+
+def preprocess_v9(xyz, max_len):
+    """
+    v9 + bbox 들간의 거리
+    """
+    L = len(xyz)
+    if L > max_len:
+        i = (L - max_len) // 2
+        xyz = xyz[i : i + max_len]
+    L = len(xyz)
+
+    # selection
+    overall_xy = xyz[:, LHAND_SIM + RHAND_SIM + simple_lips + POSE_SIM, :2]
+    overall_xy = normalize_feature_3d(overall_xy)
+
+    lhand_xy = overall_xy[:, : len(LHAND_SIM), :2]
+    rhand_xy = overall_xy[:, len(LHAND_SIM) : len(LHAND_SIM) + len(RHAND_SIM), :2]
+    lip_xy = overall_xy[
+        :,
+        len(LHAND_SIM)
+        + len(RHAND_SIM) : len(LHAND_SIM)
+        + len(RHAND_SIM)
+        + len(simple_lips),
+        :2,
+    ]
+
+    # 1. min-max scaling (part-wise)
+    # 1-1. overall scaling
+    overall_min_x, overall_min_y, overall_max_x, overall_max_y = (
+        torch.min(overall_xy[:, :, 0], dim=1, keepdims=True).values,
+        torch.min(overall_xy[:, :, 1], dim=1, keepdims=True).values,
+        torch.max(overall_xy[:, :, 0], dim=1, keepdims=True).values,
+        torch.max(overall_xy[:, :, 1], dim=1, keepdims=True).values,
+    )
+    overall_min, overall_max = torch.cat(
+        (overall_min_x, overall_min_y), dim=-1
+    ).unsqueeze(1), torch.cat((overall_max_x, overall_max_y), dim=-1).unsqueeze(1)
+    overall_scaled_xy = overall_xy - overall_min
+    overall_scaled_xy /= overall_max - overall_min
+    overall_scaled_xy -= 0.5
+
+    # 1-2. hand scaling
+    lhand_min_x, lhand_min_y, lhand_max_x, lhand_max_y = (
+        torch.min(lhand_xy[:, :, 0], dim=1, keepdims=True).values,
+        torch.min(lhand_xy[:, :, 1], dim=1, keepdims=True).values,
+        torch.max(lhand_xy[:, :, 0], dim=1, keepdims=True).values,
+        torch.max(lhand_xy[:, :, 1], dim=1, keepdims=True).values,
+    )
+    lhand_min, lhand_max = torch.cat((lhand_min_x, lhand_min_y), dim=-1).unsqueeze(
+        1
+    ), torch.cat((lhand_max_x, lhand_max_y), dim=-1).unsqueeze(1)
+    lhand_scaled_xy = lhand_xy - lhand_min
+    lhand_scaled_xy /= lhand_max - lhand_min
+    lhand_scaled_xy -= 0.5
+
+    rhand_min_x, rhand_min_y, rhand_max_x, rhand_max_y = (
+        torch.min(rhand_xy[:, :, 0], dim=1, keepdims=True).values,
+        torch.min(rhand_xy[:, :, 1], dim=1, keepdims=True).values,
+        torch.max(rhand_xy[:, :, 0], dim=1, keepdims=True).values,
+        torch.max(rhand_xy[:, :, 1], dim=1, keepdims=True).values,
+    )
+    rhand_min, rhand_max = torch.cat((rhand_min_x, rhand_min_y), dim=-1).unsqueeze(
+        1
+    ), torch.cat((rhand_max_x, rhand_max_y), dim=-1).unsqueeze(1)
+    rhand_scaled_xy = rhand_xy - rhand_min
+    rhand_scaled_xy /= rhand_max - rhand_min  # [None, 10, 2]
+    rhand_scaled_xy -= 0.5
+
+    lip_min_x, lip_min_y, lip_max_x, lip_max_y = (
+        torch.min(lip_xy[:, :, 0], dim=1, keepdims=True).values,
+        torch.min(lip_xy[:, :, 1], dim=1, keepdims=True).values,
+        torch.max(lip_xy[:, :, 0], dim=1, keepdims=True).values,
+        torch.max(lip_xy[:, :, 1], dim=1, keepdims=True).values,
+    )
+    lip_min, lip_max = torch.cat((lip_min_x, lip_min_y), dim=-1).unsqueeze(
+        1
+    ), torch.cat((lip_max_x, lip_max_y), dim=-1).unsqueeze(1)
+    lip_scaled_xy = lip_xy - lip_min
+    lip_scaled_xy /= lip_max - lip_min  # [None, 8, 2]
+    lip_scaled_xy -= 0.5
+
+    # 2. global location
+    overall_center = (overall_max + overall_min) / 2
+    lhand_center = (lhand_max + lhand_min) / 2
+    rhand_center = (rhand_max + rhand_min) / 2  # [None, 1, 2]
+    lip_center = (lip_max + lip_min) / 2
+
+    # 3. bbox 들간의 거리
+    mask = torch.tril(torch.ones(L, 4, 4, dtype=torch.bool), diagonal=-1)
+    bbox_xy = torch.cat((overall_center, lhand_center, rhand_center, lip_center), dim=1)
+    bboxd = bbox_xy.reshape(-1, 4, 1, 2) - bbox_xy.reshape(-1, 1, 4, 2)
+    bboxd = torch.sqrt((bboxd**2).sum(-1))
+    bboxd = bboxd.masked_select(mask)  # [None * 6]
+
+    # 4. 좌표 global 위치 temporal 변화 (속도)
+    overall_dxy = overall_xy[:-1] - overall_xy[1:]
+    overall_dxy = torch.from_numpy(np.pad(overall_dxy, [[0, 1], [0, 0], [0, 0]]))
+
+    # 5. 손 global 좌표 사이의 거리
+    mask = torch.tril(torch.ones(L, 10, 10, dtype=torch.bool), diagonal=-1)
+    ld = lhand_xy.reshape(-1, 10, 1, 2) - lhand_xy.reshape(-1, 1, 10, 2)
+    ld = torch.sqrt((ld**2).sum(-1))
+    ld = ld.masked_select(mask)
+
+    rd = rhand_xy.reshape(-1, 10, 1, 2) - rhand_xy.reshape(-1, 1, 10, 2)
+    rd = torch.sqrt((rd**2).sum(-1))
+    rd = rd.masked_select(mask)
+
+    x = torch.cat(
+        [
+            overall_xy.reshape(L, -1),  # normalized landmark
+            overall_scaled_xy.reshape(L, -1),  # scaled position
+            lhand_scaled_xy.reshape(L, -1),
+            rhand_scaled_xy.reshape(L, -1),
+            lip_scaled_xy.reshape(L, -1),
+            overall_center.reshape(L, -1),  # global location of bbox
+            lhand_center.reshape(L, -1),
+            rhand_center.reshape(L, -1),
+            lip_center.reshape(L, -1),
+            bboxd.reshape(L, -1),  # distance between bbox global landmarks
+            overall_dxy.reshape(L, -1),  # velocity of global landmarks
+            ld.reshape(L, -1),  # distance between hand global landmarks
+            rd.reshape(L, -1),
+        ],  # (none, 364)
+        -1,
+    )
+    x[torch.isnan(x)] = 0
+    return x
+
+
+def preprocess_v1(xyz, max_len):
+    """
+    xyzd_hdist_v2 에서 selection 먼저
+    """
+    L = len(xyz)
+    if L > max_len:
+        i = (L - max_len) // 2
+        xyz = xyz[i : i + max_len]
+    L = len(xyz)
+
+    # selection
+    xyz = xyz[:, LHAND + RHAND + LIP]
+
+    # noramlization
+    xyz = normalize_feature_3d(xyz)
+
+    # motion
+    dxyz = xyz[:-1] - xyz[1:]
+    dxyz = np.pad(dxyz, [[0, 1], [0, 0], [0, 0]])
+
+    # hand joint-wise distance
+    mask = torch.tril(torch.ones(L, 21, 21, dtype=torch.bool), diagonal=-1)
+    lhand = xyz[:, :21, :2]
+    ld = lhand.reshape(-1, 21, 1, 2) - lhand.reshape(-1, 1, 21, 2)
+    ld = torch.sqrt((ld**2).sum(-1))
+    ld = ld.masked_select(mask)
+
+    rhand = xyz[:, 21:42, :2]
+    rd = rhand.reshape(-1, 21, 1, 2) - rhand.reshape(-1, 1, 21, 2)
+    rd = torch.sqrt((rd**2).sum(-1))
+    rd = rd.masked_select(mask)
+
+    x = torch.cat(
+        [
+            xyz.reshape(L, -1),
+            torch.from_numpy(dxyz).reshape(L, -1),
+            ld.reshape(L, -1),
+            rd.reshape(L, -1),
+        ],  # (none, 912)
+        -1,
+    )
+    x[torch.isnan(x)] = 0
+    return x
+
+
+def preprocess_v1_1(xyz, max_len):
+    """
+    v1 + no z
+    """
+    L = len(xyz)
+    if L > max_len:
+        i = (L - max_len) // 2
+        xyz = xyz[i : i + max_len]
+    L = len(xyz)
+
+    # selection
+    xyz = xyz[:, LHAND + RHAND + LIP, :2]
+
+    # noramlization
+    xyz = normalize_feature_3d(xyz)
+
+    # motion
+    dxyz = xyz[:-1] - xyz[1:]
+    dxyz = np.pad(dxyz, [[0, 1], [0, 0], [0, 0]])
+
+    # hand joint-wise distance
+    mask = torch.tril(torch.ones(L, 21, 21, dtype=torch.bool), diagonal=-1)
+    lhand = xyz[:, :21, :2]
+    ld = lhand.reshape(-1, 21, 1, 2) - lhand.reshape(-1, 1, 21, 2)
+    ld = torch.sqrt((ld**2).sum(-1))
+    ld = ld.masked_select(mask)
+
+    rhand = xyz[:, 21:42, :2]
+    rd = rhand.reshape(-1, 21, 1, 2) - rhand.reshape(-1, 1, 21, 2)
+    rd = torch.sqrt((rd**2).sum(-1))
+    rd = rd.masked_select(mask)
+
+    x = torch.cat(
+        [
+            xyz.reshape(L, -1),
+            torch.from_numpy(dxyz).reshape(L, -1),
+            ld.reshape(L, -1),
+            rd.reshape(L, -1),
+        ],  # (none, 912)
+        -1,
+    )
+    x[torch.isnan(x)] = 0
+    return x
+
+
+def preprocess_v8_1(xyz, max_len):
+    """
+    v8 + selection, normalize -> normalize, selection
+    """
+    L = len(xyz)
+    if L > max_len:
+        i = (L - max_len) // 2
+        xyz = xyz[i : i + max_len]
+    L = len(xyz)
+
+    # noramlize
+    xyz = normalize_feature_3d(xyz[:, :, :2])
+    # selection
+    overall_xy = xyz[:, LHAND_SIM + RHAND_SIM + simple_lips + POSE_SIM, :2]
+
+    lhand_xy = overall_xy[:, : len(LHAND_SIM), :2]
+    rhand_xy = overall_xy[:, len(LHAND_SIM) : len(LHAND_SIM) + len(RHAND_SIM), :2]
+    lip_xy = overall_xy[
+        :,
+        len(LHAND_SIM)
+        + len(RHAND_SIM) : len(LHAND_SIM)
+        + len(RHAND_SIM)
+        + len(simple_lips),
+        :2,
+    ]
+
+    # 1. min-max scaling (part-wise)
+    # 1-1. overall scaling
+    overall_min_x, overall_min_y, overall_max_x, overall_max_y = (
+        torch.min(overall_xy[:, :, 0], dim=1, keepdims=True).values,
+        torch.min(overall_xy[:, :, 1], dim=1, keepdims=True).values,
+        torch.max(overall_xy[:, :, 0], dim=1, keepdims=True).values,
+        torch.max(overall_xy[:, :, 1], dim=1, keepdims=True).values,
+    )
+    overall_min, overall_max = torch.cat(
+        (overall_min_x, overall_min_y), dim=-1
+    ).unsqueeze(1), torch.cat((overall_max_x, overall_max_y), dim=-1).unsqueeze(1)
+    overall_scaled_xy = overall_xy - overall_min
+    overall_scaled_xy /= overall_max - overall_min
+    overall_scaled_xy -= 0.5
+
+    # 1-2. hand scaling
+    lhand_min_x, lhand_min_y, lhand_max_x, lhand_max_y = (
+        torch.min(lhand_xy[:, :, 0], dim=1, keepdims=True).values,
+        torch.min(lhand_xy[:, :, 1], dim=1, keepdims=True).values,
+        torch.max(lhand_xy[:, :, 0], dim=1, keepdims=True).values,
+        torch.max(lhand_xy[:, :, 1], dim=1, keepdims=True).values,
+    )
+    lhand_min, lhand_max = torch.cat((lhand_min_x, lhand_min_y), dim=-1).unsqueeze(
+        1
+    ), torch.cat((lhand_max_x, lhand_max_y), dim=-1).unsqueeze(1)
+    lhand_scaled_xy = lhand_xy - lhand_min
+    lhand_scaled_xy /= lhand_max - lhand_min
+    lhand_scaled_xy -= 0.5
+
+    rhand_min_x, rhand_min_y, rhand_max_x, rhand_max_y = (
+        torch.min(rhand_xy[:, :, 0], dim=1, keepdims=True).values,
+        torch.min(rhand_xy[:, :, 1], dim=1, keepdims=True).values,
+        torch.max(rhand_xy[:, :, 0], dim=1, keepdims=True).values,
+        torch.max(rhand_xy[:, :, 1], dim=1, keepdims=True).values,
+    )
+    rhand_min, rhand_max = torch.cat((rhand_min_x, rhand_min_y), dim=-1).unsqueeze(
+        1
+    ), torch.cat((rhand_max_x, rhand_max_y), dim=-1).unsqueeze(1)
+    rhand_scaled_xy = rhand_xy - rhand_min
+    rhand_scaled_xy /= rhand_max - rhand_min  # [None, 10, 2]
+    rhand_scaled_xy -= 0.5
+
+    lip_min_x, lip_min_y, lip_max_x, lip_max_y = (
+        torch.min(lip_xy[:, :, 0], dim=1, keepdims=True).values,
+        torch.min(lip_xy[:, :, 1], dim=1, keepdims=True).values,
+        torch.max(lip_xy[:, :, 0], dim=1, keepdims=True).values,
+        torch.max(lip_xy[:, :, 1], dim=1, keepdims=True).values,
+    )
+    lip_min, lip_max = torch.cat((lip_min_x, lip_min_y), dim=-1).unsqueeze(
+        1
+    ), torch.cat((lip_max_x, lip_max_y), dim=-1).unsqueeze(1)
+    lip_scaled_xy = lip_xy - lip_min
+    lip_scaled_xy /= lip_max - lip_min  # [None, 8, 2]
+    lip_scaled_xy -= 0.5
+
+    # 2. global location
+    overall_center = (overall_max + overall_min) / 2
+    lhand_center = (lhand_max + lhand_min) / 2
+    rhand_center = (rhand_max + rhand_min) / 2  # [None, 1, 2]
+    lip_center = (lip_max + lip_min) / 2
+
+    # 3. 좌표 global 위치 temporal 변화 (속도)
+    overall_dxy = overall_xy[:-1] - overall_xy[1:]
+    overall_dxy = torch.from_numpy(np.pad(overall_dxy, [[0, 1], [0, 0], [0, 0]]))
+
+    # 4. 손 global 좌표 사이의 거리
+    mask = torch.tril(torch.ones(L, 10, 10, dtype=torch.bool), diagonal=-1)
+    ld = lhand_xy.reshape(-1, 10, 1, 2) - lhand_xy.reshape(-1, 1, 10, 2)
+    ld = torch.sqrt((ld**2).sum(-1))
+    ld = ld.masked_select(mask)
+
+    rd = rhand_xy.reshape(-1, 10, 1, 2) - rhand_xy.reshape(-1, 1, 10, 2)
+    rd = torch.sqrt((rd**2).sum(-1))
+    rd = rd.masked_select(mask)
+
+    x = torch.cat(
+        [
+            overall_xy.reshape(L, -1),  # normalized landmark
+            overall_scaled_xy.reshape(L, -1),  # scaled position
+            lhand_scaled_xy.reshape(L, -1),
+            rhand_scaled_xy.reshape(L, -1),
+            lip_scaled_xy.reshape(L, -1),
+            overall_center.reshape(L, -1),  # global location of bbox
+            lhand_center.reshape(L, -1),
+            rhand_center.reshape(L, -1),
+            lip_center.reshape(L, -1),
+            overall_dxy.reshape(L, -1),  # velocity of global landmarks
+            ld.reshape(L, -1),  # distance between hand global landmarks
+            rd.reshape(L, -1),
+        ],  # (none, 364)
+        -1,
+    )
+    x[torch.isnan(x)] = 0
+    return x
+
+
+def preprocess_v9_1(xyz, max_len):
+    """
+    v9 + selection, normalize -> normalize, selection
+    """
+    L = len(xyz)
+    if L > max_len:
+        i = (L - max_len) // 2
+        xyz = xyz[i : i + max_len]
+    L = len(xyz)
+
+    # noramlize
+    xyz = normalize_feature_3d(xyz[:, :, :2])
+    # selection
+    overall_xy = xyz[:, LHAND_SIM + RHAND_SIM + simple_lips + POSE_SIM, :2]
+
+    lhand_xy = overall_xy[:, : len(LHAND_SIM), :2]
+    rhand_xy = overall_xy[:, len(LHAND_SIM) : len(LHAND_SIM) + len(RHAND_SIM), :2]
+    lip_xy = overall_xy[
+        :,
+        len(LHAND_SIM)
+        + len(RHAND_SIM) : len(LHAND_SIM)
+        + len(RHAND_SIM)
+        + len(simple_lips),
+        :2,
+    ]
+
+    # 1. min-max scaling (part-wise)
+    # 1-1. overall scaling
+    overall_min_x, overall_min_y, overall_max_x, overall_max_y = (
+        torch.min(overall_xy[:, :, 0], dim=1, keepdims=True).values,
+        torch.min(overall_xy[:, :, 1], dim=1, keepdims=True).values,
+        torch.max(overall_xy[:, :, 0], dim=1, keepdims=True).values,
+        torch.max(overall_xy[:, :, 1], dim=1, keepdims=True).values,
+    )
+    overall_min, overall_max = torch.cat(
+        (overall_min_x, overall_min_y), dim=-1
+    ).unsqueeze(1), torch.cat((overall_max_x, overall_max_y), dim=-1).unsqueeze(1)
+    overall_scaled_xy = overall_xy - overall_min
+    overall_scaled_xy /= overall_max - overall_min
+    overall_scaled_xy -= 0.5
+
+    # 1-2. hand scaling
+    lhand_min_x, lhand_min_y, lhand_max_x, lhand_max_y = (
+        torch.min(lhand_xy[:, :, 0], dim=1, keepdims=True).values,
+        torch.min(lhand_xy[:, :, 1], dim=1, keepdims=True).values,
+        torch.max(lhand_xy[:, :, 0], dim=1, keepdims=True).values,
+        torch.max(lhand_xy[:, :, 1], dim=1, keepdims=True).values,
+    )
+    lhand_min, lhand_max = torch.cat((lhand_min_x, lhand_min_y), dim=-1).unsqueeze(
+        1
+    ), torch.cat((lhand_max_x, lhand_max_y), dim=-1).unsqueeze(1)
+    lhand_scaled_xy = lhand_xy - lhand_min
+    lhand_scaled_xy /= lhand_max - lhand_min
+    lhand_scaled_xy -= 0.5
+
+    rhand_min_x, rhand_min_y, rhand_max_x, rhand_max_y = (
+        torch.min(rhand_xy[:, :, 0], dim=1, keepdims=True).values,
+        torch.min(rhand_xy[:, :, 1], dim=1, keepdims=True).values,
+        torch.max(rhand_xy[:, :, 0], dim=1, keepdims=True).values,
+        torch.max(rhand_xy[:, :, 1], dim=1, keepdims=True).values,
+    )
+    rhand_min, rhand_max = torch.cat((rhand_min_x, rhand_min_y), dim=-1).unsqueeze(
+        1
+    ), torch.cat((rhand_max_x, rhand_max_y), dim=-1).unsqueeze(1)
+    rhand_scaled_xy = rhand_xy - rhand_min
+    rhand_scaled_xy /= rhand_max - rhand_min  # [None, 10, 2]
+    rhand_scaled_xy -= 0.5
+
+    lip_min_x, lip_min_y, lip_max_x, lip_max_y = (
+        torch.min(lip_xy[:, :, 0], dim=1, keepdims=True).values,
+        torch.min(lip_xy[:, :, 1], dim=1, keepdims=True).values,
+        torch.max(lip_xy[:, :, 0], dim=1, keepdims=True).values,
+        torch.max(lip_xy[:, :, 1], dim=1, keepdims=True).values,
+    )
+    lip_min, lip_max = torch.cat((lip_min_x, lip_min_y), dim=-1).unsqueeze(
+        1
+    ), torch.cat((lip_max_x, lip_max_y), dim=-1).unsqueeze(1)
+    lip_scaled_xy = lip_xy - lip_min
+    lip_scaled_xy /= lip_max - lip_min  # [None, 8, 2]
+    lip_scaled_xy -= 0.5
+
+    # 2. global location
+    overall_center = (overall_max + overall_min) / 2
+    lhand_center = (lhand_max + lhand_min) / 2
+    rhand_center = (rhand_max + rhand_min) / 2  # [None, 1, 2]
+    lip_center = (lip_max + lip_min) / 2
+
+    # 3. bbox 들간의 거리
+    mask = torch.tril(torch.ones(L, 4, 4, dtype=torch.bool), diagonal=-1)
+    bbox_xy = torch.cat((overall_center, lhand_center, rhand_center, lip_center), dim=1)
+    bboxd = bbox_xy.reshape(-1, 4, 1, 2) - bbox_xy.reshape(-1, 1, 4, 2)
+    bboxd = torch.sqrt((bboxd**2).sum(-1))
+    bboxd = bboxd.masked_select(mask)  # [None * 6]
+
+    # 4. 좌표 global 위치 temporal 변화 (속도)
+    overall_dxy = overall_xy[:-1] - overall_xy[1:]
+    overall_dxy = torch.from_numpy(np.pad(overall_dxy, [[0, 1], [0, 0], [0, 0]]))
+
+    # 5. 손 global 좌표 사이의 거리
+    mask = torch.tril(torch.ones(L, 10, 10, dtype=torch.bool), diagonal=-1)
+    ld = lhand_xy.reshape(-1, 10, 1, 2) - lhand_xy.reshape(-1, 1, 10, 2)
+    ld = torch.sqrt((ld**2).sum(-1))
+    ld = ld.masked_select(mask)
+
+    rd = rhand_xy.reshape(-1, 10, 1, 2) - rhand_xy.reshape(-1, 1, 10, 2)
+    rd = torch.sqrt((rd**2).sum(-1))
+    rd = rd.masked_select(mask)
+
+    x = torch.cat(
+        [
+            overall_xy.reshape(L, -1),  # normalized landmark
+            overall_scaled_xy.reshape(L, -1),  # scaled position
+            lhand_scaled_xy.reshape(L, -1),
+            rhand_scaled_xy.reshape(L, -1),
+            lip_scaled_xy.reshape(L, -1),
+            overall_center.reshape(L, -1),  # global location of bbox
+            lhand_center.reshape(L, -1),
+            rhand_center.reshape(L, -1),
+            lip_center.reshape(L, -1),
+            bboxd.reshape(L, -1),  # distance between bbox global landmarks
+            overall_dxy.reshape(L, -1),  # velocity of global landmarks
+            ld.reshape(L, -1),  # distance between hand global landmarks
+            rd.reshape(L, -1),
+        ],  # (none, 364)
+        -1,
+    )
+    x[torch.isnan(x)] = 0
+    return x
+
+
+def preproc_v0(xyz, max_len):
+    """
+    same as xyzd_hdist_v2
+    """
+    L = len(xyz)
+    if L > max_len:
+        i = (L - max_len) // 2
+        xyz = xyz[i : i + max_len]
+    L = len(xyz)
+
+    # noramlization
+    xyz = normalize_feature_3d(xyz)
+    # selection
+    xyz = xyz[:, LHAND + RHAND + LIP]
+
+    # motion
+    dxyz = xyz[:-1] - xyz[1:]
+    dxyz = torch.from_numpy(np.pad(dxyz, [[0, 1], [0, 0], [0, 0]]))
+
+    # hand joint-wise distance
+    mask = torch.tril(torch.ones(L, 21, 21, dtype=torch.bool), diagonal=-1)
+    lhand = xyz[:, :21, :2]
+    ld = lhand.reshape(-1, 21, 1, 2) - lhand.reshape(-1, 1, 21, 2)
+    ld = torch.sqrt((ld**2).sum(-1))
+    ld = ld.masked_select(mask)
+
+    rhand = xyz[:, 21:42, :2]
+    rd = rhand.reshape(-1, 21, 1, 2) - rhand.reshape(-1, 1, 21, 2)
+    rd = torch.sqrt((rd**2).sum(-1))
+    rd = rd.masked_select(mask)
+
+    x = torch.cat(
+        [
+            xyz.reshape(L, -1),
+            dxyz.reshape(L, -1),
+            ld.reshape(L, -1),
+            rd.reshape(L, -1),
+        ],  # (none, 912)
+        -1,
+    )
+    x[torch.isnan(x)] = 0
+    return x
+
+
+def preproc_v0_1(xyz, max_len):
+    """
+    v0 + no z
+    """
+    L = len(xyz)
+    if L > max_len:
+        i = (L - max_len) // 2
+        xyz = xyz[i : i + max_len]
+    L = len(xyz)
+
+    # noramlization
+    xyz = normalize_feature_3d(xyz[:, :, :2])
+    # selection
+    xyz = xyz[:, LHAND + RHAND + LIP, :2]
+
+    # motion
+    dxyz = xyz[:-1] - xyz[1:]
+    dxyz = torch.from_numpy(np.pad(dxyz, [[0, 1], [0, 0], [0, 0]]))
+
+    # hand joint-wise distance
+    mask = torch.tril(torch.ones(L, 21, 21, dtype=torch.bool), diagonal=-1)
+    lhand = xyz[:, :21, :2]
+    ld = lhand.reshape(-1, 21, 1, 2) - lhand.reshape(-1, 1, 21, 2)
+    ld = torch.sqrt((ld**2).sum(-1))
+    ld = ld.masked_select(mask)
+
+    rhand = xyz[:, 21:42, :2]
+    rd = rhand.reshape(-1, 21, 1, 2) - rhand.reshape(-1, 1, 21, 2)
+    rd = torch.sqrt((rd**2).sum(-1))
+    rd = rd.masked_select(mask)
+
+    x = torch.cat(
+        [
+            xyz.reshape(L, -1),
+            dxyz.reshape(L, -1),
+            ld.reshape(L, -1),
+            rd.reshape(L, -1),
+        ],  # (none, 912)
+        -1,
+    )
+    x[torch.isnan(x)] = 0
+    return x
+
+
+def preproc_v0_2(xyz, max_len):
+    """
+    v0 + no lips
+    """
+    L = len(xyz)
+    if L > max_len:
+        i = (L - max_len) // 2
+        xyz = xyz[i : i + max_len]
+    L = len(xyz)
+
+    # noramlization
+    xyz = normalize_feature_3d(xyz)
+    # selection
+    xyz = xyz[:, LHAND + RHAND]
+
+    # motion
+    dxyz = xyz[:-1] - xyz[1:]
+    dxyz = torch.from_numpy(np.pad(dxyz, [[0, 1], [0, 0], [0, 0]]))
+
+    # hand joint-wise distance
+    mask = torch.tril(torch.ones(L, 21, 21, dtype=torch.bool), diagonal=-1)
+    lhand = xyz[:, :21, :2]
+    ld = lhand.reshape(-1, 21, 1, 2) - lhand.reshape(-1, 1, 21, 2)
+    ld = torch.sqrt((ld**2).sum(-1))
+    ld = ld.masked_select(mask)
+
+    rhand = xyz[:, 21:42, :2]
+    rd = rhand.reshape(-1, 21, 1, 2) - rhand.reshape(-1, 1, 21, 2)
+    rd = torch.sqrt((rd**2).sum(-1))
+    rd = rd.masked_select(mask)
+
+    x = torch.cat(
+        [
+            xyz.reshape(L, -1),
+            dxyz.reshape(L, -1),
+            ld.reshape(L, -1),
+            rd.reshape(L, -1),
+        ],  # (none, 912)
+        -1,
+    )
+    x[torch.isnan(x)] = 0
+    return x
+
+
+def preproc_v0_3(xyz, max_len):
+    """
+    v0 + lips -> simple lips(v03, pointdim 720) or SLIP(v031, pointdim 792)
+    """
+    L = len(xyz)
+    if L > max_len:
+        i = (L - max_len) // 2
+        xyz = xyz[i : i + max_len]
+    L = len(xyz)
+
+    # noramlization
+    xyz = normalize_feature_3d(xyz)
+    # selection
+    # xyz = xyz[:, LHAND + RHAND + simple_lips]
+    xyz = xyz[:, LHAND + RHAND + SLIP]
+
+    # motion
+    dxyz = xyz[:-1] - xyz[1:]
+    dxyz = torch.from_numpy(np.pad(dxyz, [[0, 1], [0, 0], [0, 0]]))
+
+    # hand joint-wise distance
+    mask = torch.tril(torch.ones(L, 21, 21, dtype=torch.bool), diagonal=-1)
+    lhand = xyz[:, :21, :2]
+    ld = lhand.reshape(-1, 21, 1, 2) - lhand.reshape(-1, 1, 21, 2)
+    ld = torch.sqrt((ld**2).sum(-1))
+    ld = ld.masked_select(mask)
+
+    rhand = xyz[:, 21:42, :2]
+    rd = rhand.reshape(-1, 21, 1, 2) - rhand.reshape(-1, 1, 21, 2)
+    rd = torch.sqrt((rd**2).sum(-1))
+    rd = rd.masked_select(mask)
+
+    x = torch.cat(
+        [
+            xyz.reshape(L, -1),
+            dxyz.reshape(L, -1),
+            ld.reshape(L, -1),
+            rd.reshape(L, -1),
+        ],  # (none, 912)
+        -1,
+    )
+    x[torch.isnan(x)] = 0
+    return x
+
+
+def preproc_v0_4(xyz, max_len):
+    """
+    v0 + simple pose
+    """
+    L = len(xyz)
+    if L > max_len:
+        i = (L - max_len) // 2
+        xyz = xyz[i : i + max_len]
+    L = len(xyz)
+
+    # noramlization
+    xyz = normalize_feature_3d(xyz)
+    # selection
+    # xyz = xyz[:, LHAND + RHAND + LIP + POSE_SIM]
+    xyz = xyz[:, LHAND + RHAND + LIP + SPOSE]
+
+    # motion
+    dxyz = xyz[:-1] - xyz[1:]
+    dxyz = torch.from_numpy(np.pad(dxyz, [[0, 1], [0, 0], [0, 0]]))
+
+    # hand joint-wise distance
+    mask = torch.tril(torch.ones(L, 21, 21, dtype=torch.bool), diagonal=-1)
+    lhand = xyz[:, :21, :2]
+    ld = lhand.reshape(-1, 21, 1, 2) - lhand.reshape(-1, 1, 21, 2)
+    ld = torch.sqrt((ld**2).sum(-1))
+    ld = ld.masked_select(mask)
+
+    rhand = xyz[:, 21:42, :2]
+    rd = rhand.reshape(-1, 21, 1, 2) - rhand.reshape(-1, 1, 21, 2)
+    rd = torch.sqrt((rd**2).sum(-1))
+    rd = rd.masked_select(mask)
+
+    x = torch.cat(
+        [
+            xyz.reshape(L, -1),
+            dxyz.reshape(L, -1),
+            ld.reshape(L, -1),
+            rd.reshape(L, -1),
+        ],  # (none, 966, 978)
+        -1,
+    )
+    x[torch.isnan(x)] = 0
+    return x
+
+
+def preproc_v0_5(xyz, max_len):
+    """
+    v0 + v0_1 + v0_3 (SLIP) + v0_4(966)
+    """
+    L = len(xyz)
+    if L > max_len:
+        i = (L - max_len) // 2
+        xyz = xyz[i : i + max_len]
+    L = len(xyz)
+
+    # noramlization
+    xyz = normalize_feature_3d(xyz[:, :, :2])
+    # selection
+    xyz = xyz[:, LHAND + RHAND + SLIP + POSE_SIM, :2]
+
+    # motion
+    dxyz = xyz[:-1] - xyz[1:]
+    dxyz = torch.from_numpy(np.pad(dxyz, [[0, 1], [0, 0], [0, 0]]))
+
+    # hand joint-wise distance
+    mask = torch.tril(torch.ones(L, 21, 21, dtype=torch.bool), diagonal=-1)
+    lhand = xyz[:, :21, :2]
+    ld = lhand.reshape(-1, 21, 1, 2) - lhand.reshape(-1, 1, 21, 2)
+    ld = torch.sqrt((ld**2).sum(-1))
+    ld = ld.masked_select(mask)
+
+    rhand = xyz[:, 21:42, :2]
+    rd = rhand.reshape(-1, 21, 1, 2) - rhand.reshape(-1, 1, 21, 2)
+    rd = torch.sqrt((rd**2).sum(-1))
+    rd = rd.masked_select(mask)
+
+    x = torch.cat(
+        [
+            xyz.reshape(L, -1),
+            dxyz.reshape(L, -1),
+            ld.reshape(L, -1),
+            rd.reshape(L, -1),
+        ],  # (none, 704)
+        -1,
+    )
+    x[torch.isnan(x)] = 0
+    return x
+
+
+def preproc_v0_6(xyz, max_len):
+    """
+    v0 + v0_1 + v0_4(966)
+    """
+    L = len(xyz)
+    if L > max_len:
+        i = (L - max_len) // 2
+        xyz = xyz[i : i + max_len]
+    L = len(xyz)
+
+    # noramlization
+    xyz = normalize_feature_3d(xyz[:, :, :2])
+    # selection
+    # xyz = xyz[:, LHAND + RHAND + LIP + POSE_SIM, :2]
+    xyz = xyz[:, LHAND + RHAND + LIP + SPOSE, :2]
+
+    # motion
+    dxyz = xyz[:-1] - xyz[1:]
+    dxyz = torch.from_numpy(np.pad(dxyz, [[0, 1], [0, 0], [0, 0]]))
+
+    # hand joint-wise distance
+    mask = torch.tril(torch.ones(L, 21, 21, dtype=torch.bool), diagonal=-1)
+    lhand = xyz[:, :21, :2]
+    ld = lhand.reshape(-1, 21, 1, 2) - lhand.reshape(-1, 1, 21, 2)
+    ld = torch.sqrt((ld**2).sum(-1))
+    ld = ld.masked_select(mask)
+
+    rhand = xyz[:, 21:42, :2]
+    rd = rhand.reshape(-1, 21, 1, 2) - rhand.reshape(-1, 1, 21, 2)
+    rd = torch.sqrt((rd**2).sum(-1))
+    rd = rd.masked_select(mask)
+
+    x = torch.cat(
+        [
+            xyz.reshape(L, -1),
+            dxyz.reshape(L, -1),
+            ld.reshape(L, -1),
+            rd.reshape(L, -1),
+        ],  # (none, 784 or 792)
+        -1,
+    )
+    x[torch.isnan(x)] = 0
+    return x
+
+
+def preproc_v0_7(xyz, max_len):
+    """
+    v0_6 + leye, reye, nose
+    """
+    L = len(xyz)
+    if L > max_len:
+        i = (L - max_len) // 2
+        xyz = xyz[i : i + max_len]
+    L = len(xyz)
+
+    # noramlization
+    xyz = normalize_feature_3d(xyz[:, :, :2])
+    # selection
+    xyz = xyz[:, LHAND + RHAND + LIP + POSE_SIM + LEYE + REYE + NOSE, :2]
+
+    # motion
+    dxyz = xyz[:-1] - xyz[1:]
+    dxyz = torch.from_numpy(np.pad(dxyz, [[0, 1], [0, 0], [0, 0]]))
+
+    # hand joint-wise distance
+    mask = torch.tril(torch.ones(L, 21, 21, dtype=torch.bool), diagonal=-1)
+    lhand = xyz[:, :21, :2]
+    ld = lhand.reshape(-1, 21, 1, 2) - lhand.reshape(-1, 1, 21, 2)
+    ld = torch.sqrt((ld**2).sum(-1))
+    ld = ld.masked_select(mask)
+
+    rhand = xyz[:, 21:42, :2]
+    rd = rhand.reshape(-1, 21, 1, 2) - rhand.reshape(-1, 1, 21, 2)
+    rd = torch.sqrt((rd**2).sum(-1))
+    rd = rd.masked_select(mask)
+
+    x = torch.cat(
+        [
+            xyz.reshape(L, -1),
+            dxyz.reshape(L, -1),
+            ld.reshape(L, -1),
+            rd.reshape(L, -1),
+        ],  # (none, 784)
+        -1,
+    )
+    x[torch.isnan(x)] = 0
+    return x
+
+
+def preproc_v1(xyz, max_len):
+    """
+    same as v0_5
+    """
+    L = len(xyz)
+    if L > max_len:
+        i = (L - max_len) // 2
+        xyz = xyz[i : i + max_len]
+    L = len(xyz)
+
+    # noramlization
+    xyz = normalize_feature_3d(xyz[:, :, :2])
+    # selection
+    xyz = xyz[:, LHAND + RHAND + SLIP + POSE_SIM, :2]
+
+    # motion
+    dxyz = xyz[:-1] - xyz[1:]
+    dxyz = torch.from_numpy(np.pad(dxyz, [[0, 1], [0, 0], [0, 0]]))
+
+    # hand joint-wise distance
+    mask = torch.tril(torch.ones(L, 21, 21, dtype=torch.bool), diagonal=-1)
+    lhand = xyz[:, :21, :2]
+    ld = lhand.reshape(-1, 21, 1, 2) - lhand.reshape(-1, 1, 21, 2)
+    ld = torch.sqrt((ld**2).sum(-1))
+    ld = ld.masked_select(mask)
+
+    rhand = xyz[:, 21:42, :2]
+    rd = rhand.reshape(-1, 21, 1, 2) - rhand.reshape(-1, 1, 21, 2)
+    rd = torch.sqrt((rd**2).sum(-1))
+    rd = rd.masked_select(mask)
+
+    x = torch.cat(
+        [
+            xyz.reshape(L, -1),
+            dxyz.reshape(L, -1),
+            ld.reshape(L, -1),
+            rd.reshape(L, -1),
+        ],  # (none, 928)
         -1,
     )
     x[torch.isnan(x)] = 0
@@ -1049,8 +2665,9 @@ if __name__ == "__main__":
         "/sources/dataset/train_landmark_files/2044/635217.parquet"
     )
     xyz = torch.from_numpy(xyz).float()
-    xyz = preprocess_v2(xyz, max_len)
-    # print(xyz)
+    xyz = preproc_v0_6(xyz, max_len)
+    # print(xyz[5, 124:142])
     print(xyz.shape)
+    print(xyz[5])
     print(min(xyz[5]))
     print(max(xyz[5]))

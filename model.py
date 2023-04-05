@@ -333,6 +333,7 @@ class ISLRModelV7(nn.Module):
         n_head,
         ff_dim,
         dropout=0.1,
+        cls_dropout=0.4,
         max_len=384,
         n_labels=250,
         input_dim=912,
@@ -356,12 +357,13 @@ class ISLRModelV7(nn.Module):
             ),
             N=n_layers,
         )
-        self.logit = nn.Linear(embed_dim, embed_dim)
+        # self.logit = nn.Linear(embed_dim, embed_dim)
         self.arc = ArcMarginProduct(embed_dim, n_labels, s=s, m=m)
 
         self.max_len = max_len
         self.input_dim = input_dim
         self.p = dropout
+        self.clsp = cls_dropout
 
     def forward(self, batch):
         xyz = batch["xyz"]
@@ -383,10 +385,10 @@ class ISLRModelV7(nn.Module):
             x = mod(x, x_mask)
 
         cls = x[:, 0]
-        cls = F.dropout(cls, p=0.4, training=self.training)
+        cls = F.dropout(cls, p=self.clsp, training=self.training)
 
-        logit = self.logit(cls)
-        logit = self.arc(logit, label)
+        # logit = self.logit(cls)
+        logit = self.arc(cls, label)
 
         return logit
 

@@ -33,6 +33,7 @@ def main():
     args = parser.parse_args()
 
     ROOT_PATH = args.data_root_path
+    SEED = [999]  # , 777, 555, 333, 111]
 
     if not os.path.exists(os.path.join(args.log_path, args.exp_name)):
         os.makedirs(os.path.join(args.log_path, args.exp_name))
@@ -40,46 +41,31 @@ def main():
         os.makedirs(os.path.join(args.ckpt_path, args.exp_name))
 
     time_stamp = "{0:%Y-%m-%dT%H-%M-%S/}".format(datetime.now())
-    for cur_fold in range(1, args.folds + 1):
+    for cur_seed in SEED:
         best_acc = 0
 
-        print(f"####### Fold-{cur_fold} training start #######")
+        seed_everything(seed=cur_seed)
+        print(f"####### Seed-{cur_seed} training start #######")
         os.makedirs(
-            os.path.join(args.log_path, args.exp_name, time_stamp, str(cur_fold)),
+            os.path.join(args.log_path, args.exp_name, time_stamp, str(cur_seed)),
             exist_ok=True,
         )
         os.makedirs(
-            os.path.join(args.ckpt_path, args.exp_name, time_stamp, str(cur_fold)),
+            os.path.join(args.ckpt_path, args.exp_name, time_stamp, str(cur_seed)),
             exist_ok=True,
         )
         log_training = open(
             os.path.join(
-                args.log_path, args.exp_name, time_stamp, str(cur_fold), "log.csv"
+                args.log_path, args.exp_name, time_stamp, str(cur_seed), "log.csv"
             ),
             "w",
         )
         tf_writer = SummaryWriter(
-            os.path.join(args.log_path, args.exp_name, time_stamp, str(cur_fold))
+            os.path.join(args.log_path, args.exp_name, time_stamp, str(cur_seed))
         )
-
-        train_idx = np.load(os.path.join(ROOT_PATH, "cv", f"train_idx_f{cur_fold}.npy"))
-        val_idx = np.load(os.path.join(ROOT_PATH, "cv", f"val_idx_f{cur_fold}.npy"))
 
         train_dataset = ISLRDataSetV2(
-            max_len=args.max_len,
-            ver=args.preproc_ver,
-            indicies=train_idx,
-            random_noise=args.random_noise,
-            flip_x=args.flip_x,
-            rotate=args.rotate,
-        )
-        val_dataset = ISLRDataSetV2(
-            max_len=args.max_len,
-            ver=args.preproc_ver,
-            indicies=val_idx,
-            random_noise=False,
-            flip_x=False,
-            rotate=False,
+            max_len=args.max_len, ver=args.preproc_ver, indicies=None
         )
 
         train_loader = torch.utils.data.DataLoader(
@@ -89,15 +75,6 @@ def main():
             num_workers=args.workers,
             pin_memory=False,
             drop_last=True,
-            collate_fn=collate_func,
-        )
-
-        val_loader = torch.utils.data.DataLoader(
-            val_dataset,
-            batch_size=args.batch_size,
-            shuffle=False,
-            num_workers=args.workers,
-            pin_memory=False,
             collate_fn=collate_func,
         )
 
@@ -206,29 +183,18 @@ def main():
                 scheduler.step()
 
             if epoch % args.eval_freq == 0:
-                val_loss, val_acc = validate(
-                    val_loader, model, criterion, epoch, log_training, tf_writer
-                )
-
-                is_best = val_acc >= best_acc
-                best_acc = max(val_acc, best_acc)
-                output_best = "Valid Best Acc: %.5f\n" % (best_acc)
-                print(output_best)
-                log_training.write(output_best + "\n")
-                log_training.flush()
-
                 save_checkpoint(
                     {
                         "state_dict": swa_model.state_dict()
                         if args.swa
                         else model.state_dict()
                     },
-                    is_best,
-                    args.ckpt_path,
-                    args.exp_name,
-                    time_stamp,
-                    cur_fold,
-                    epoch,
+                    is_best=False,
+                    ckpt_path=args.ckpt_path,
+                    exp_name=args.exp_name,
+                    time_stamp=time_stamp,
+                    fold=cur_seed,
+                    epoch=epoch,
                 )
                 tf_writer.close()
 
@@ -318,5 +284,4 @@ def seed_everything(seed):
 
 
 if __name__ == "__main__":
-    seed_everything(seed=777)
     main()

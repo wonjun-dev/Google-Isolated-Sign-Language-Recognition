@@ -4,8 +4,9 @@ python train.py \
 --T_0 100 \
 --epochs 100 \
 --max_len 384 \
---input_dim 912 \
---model_ver "v7" \
+--input_dim 704 \
+--model_ver "v6" \
+--n_layers 4 \
 --dropout 0.2 \
---preproc_ver "xyzd_hdist_v2" \
---exp_name "test-v7-xyzd-hdist-v2-dp02"
+--preproc_ver "v1" \
+--exp_name "test-mv0-av0-pv1"

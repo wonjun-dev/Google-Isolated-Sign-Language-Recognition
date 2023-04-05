@@ -1,9 +1,12 @@
-python train.py \
+python train_se.py \
 --embed_dim 256 \
 --ff_dim 256 \
 --T_0 100 \
 --epochs 100 \
 --max_len 384 \
 --input_dim 912 \
+--model_ver "v6" \
+--n_layers 4 \
+--dropout 0.2 \
 --preproc_ver "xyzd_hdist_v2" \
---exp_name "test-256-256-384-cawr-100-cc-xyzd-hdist-v2"
+--exp_name "test-v6-xyzd-hdist-v2-dp02-l4"

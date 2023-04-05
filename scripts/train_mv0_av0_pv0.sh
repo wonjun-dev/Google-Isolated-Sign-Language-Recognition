@@ -5,6 +5,8 @@ python train.py \
 --epochs 100 \
 --max_len 384 \
 --input_dim 912 \
---model_ver "v3" \
---preproc_ver "xyzd_hdist_v2" \
---exp_name "test-v3-xyzd-hdist-v2"
+--model_ver "v6" \
+--n_layers 4 \
+--dropout 0.2 \
+--preproc_ver "v0" \
+--exp_name "test-mv0-av0-pv0"

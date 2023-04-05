@@ -26,6 +26,36 @@ from preproc import (
     preprocess_bm0,
     preprocess_bm0x5,
     preprocess_smooth,
+    preprocess_v1,
+    preprocess_v1_1,
+    preprocess_v2,
+    preprocess_v3,
+    preprocess_v4,
+    preprocess_v5,
+    preprocess_v6,
+    preprocess_v7,
+    preprocess_v8,
+    preprocess_v8_1,
+    preprocess_v9,
+    preprocess_v9_1,
+    preproc_v0,
+    preproc_v0_1,
+    preproc_v0_2,
+    preproc_v0_3,
+    preproc_v0_4,
+    preproc_v0_5,
+    preproc_v0_6,
+    preproc_v0_7,
+    preproc_v1,
+)
+
+from transforms import (
+    random_noise,
+    flip_x_hand,
+    flip_x_slip,
+    flip_x_lip,
+    flip_x_spose,
+    rotate,
 )
 
 import time
@@ -55,7 +85,16 @@ class ISLRDataSet(Dataset):
 
 
 class ISLRDataSetV2(Dataset):
-    def __init__(self, path="/sources/dataset", max_len=80, ver="base", indicies=None):
+    def __init__(
+        self,
+        path="/sources/dataset",
+        max_len=80,
+        ver="base",
+        indicies=None,
+        flip_x=False,
+        random_noise=False,
+        rotate=False,
+    ):
         self.path = path
         df = pd.read_csv(os.path.join(path, "train.csv"))
         self.label_map = json.load(
@@ -70,6 +109,9 @@ class ISLRDataSetV2(Dataset):
 
         self.max_len = max_len
         self.ver = ver
+        self.random_noise = random_noise
+        self.flip_x = flip_x
+        self.rotate = rotate
 
     def __len__(self):
         return len(self.df)
@@ -78,6 +120,40 @@ class ISLRDataSetV2(Dataset):
         xyz = load_relevant_data_subset(
             os.path.join(self.path, self.df.iloc[index].path)
         )
+        if self.rotate:
+            if np.random.rand() < 0.5:
+                angle = (2 * np.random.random() - 1) * 13
+                xyz[:, :, :2] = rotate(xyz[:, :, :2], angle)
+
+        if self.flip_x:
+            if np.random.rand() < 0.5:
+                if self.ver == "v0":
+                    lhand, rhand = xyz[:, LHAND], xyz[:, RHAND]
+                    lip = xyz[:, LIP]
+
+                    lhand, rhand = flip_x_hand(lhand, rhand)
+                    lip = flip_x_lip(lip)
+
+                    xyz[:, LHAND], xyz[:, RHAND] = lhand, rhand
+                    xyz[:, LIP] = lip
+
+                else:
+                    lhand, rhand = xyz[:, LHAND], xyz[:, RHAND]
+                    slip = xyz[:, SLIP]
+                    spose = xyz[:, POSE_SIM]
+
+                    lhand, rhand = flip_x_hand(lhand, rhand)
+                    slip = flip_x_slip(slip)
+                    spose = flip_x_spose(spose)
+
+                    xyz[:, LHAND], xyz[:, RHAND] = lhand, rhand
+                    xyz[:, SLIP] = slip
+                    xyz[:, POSE_SIM] = spose
+
+        if self.random_noise:
+            if np.random.rand() < 0.5:
+                xyz = random_noise(xyz)
+
         xyz = torch.from_numpy(xyz).float()
         if self.ver == "base":
             xyz = preprocess(xyz, self.max_len)
@@ -119,6 +195,48 @@ class ISLRDataSetV2(Dataset):
             xyz = preprocess_bm0(xyz, self.max_len)
         elif self.ver == "bm0x5":
             xyz = preprocess_bm0x5(xyz, self.max_len)
+        elif self.ver == "preproc_v1":
+            xyz = preprocess_v1(xyz, self.max_len)
+        elif self.ver == "preproc_v1_1":
+            xyz = preprocess_v1_1(xyz, self.max_len)
+        elif self.ver == "preproc_v2":
+            xyz = preprocess_v2(xyz, self.max_len)
+        elif self.ver == "preproc_v3":
+            xyz = preprocess_v3(xyz, self.max_len)
+        elif self.ver == "preproc_v4":
+            xyz = preprocess_v4(xyz, self.max_len)
+        elif self.ver == "preproc_v5":
+            xyz = preprocess_v5(xyz, self.max_len)
+        elif self.ver == "preproc_v6":
+            xyz = preprocess_v6(xyz, self.max_len)
+        elif self.ver == "preproc_v7":
+            xyz = preprocess_v7(xyz, self.max_len)
+        elif self.ver == "preproc_v8":
+            xyz = preprocess_v8(xyz, self.max_len)
+        elif self.ver == "preproc_v8_1":
+            xyz = preprocess_v8_1(xyz, self.max_len)
+        elif self.ver == "preproc_v9":
+            xyz = preprocess_v9(xyz, self.max_len)
+        elif self.ver == "preproc_v9_1":
+            xyz = preprocess_v9_1(xyz, self.max_len)
+        elif self.ver == "v0":
+            xyz = preproc_v0(xyz, self.max_len)
+        elif self.ver == "v0_1":
+            xyz = preproc_v0_1(xyz, self.max_len)
+        elif self.ver == "v0_2":
+            xyz = preproc_v0_2(xyz, self.max_len)
+        elif self.ver == "v0_3":
+            xyz = preproc_v0_3(xyz, self.max_len)
+        elif self.ver == "v0_4":
+            xyz = preproc_v0_4(xyz, self.max_len)
+        elif self.ver == "v0_5":
+            xyz = preproc_v0_5(xyz, self.max_len)
+        elif self.ver == "v0_6":
+            xyz = preproc_v0_6(xyz, self.max_len)
+        elif self.ver == "v0_7":
+            xyz = preproc_v0_7(xyz, self.max_len)
+        elif self.ver == "v1":
+            xyz = preproc_v1(xyz, self.max_len)
         else:
             raise NotImplementedError
 
@@ -150,6 +268,77 @@ def load_relevant_data_subset(pq_path):
     data = data.values.reshape(n_frames, ROWS_PER_FRAME, len(data_columns))
     return data.astype(np.float32)
 
+
+LH_OFFSET = 468
+LHAND = [LH_OFFSET + i for i in range(21)]
+RH_OFFSET = 522
+RHAND = [RH_OFFSET + i for i in range(21)]
+simple_pose = [0, 1, 4, 11, 12, 13, 14, 15, 16]
+POSE_SIM = [489 + i for i in simple_pose]
+SLIP = [
+    78,
+    95,
+    88,
+    178,
+    87,
+    14,
+    317,
+    402,
+    318,
+    324,
+    308,
+    191,
+    80,
+    81,
+    82,
+    13,
+    312,
+    311,
+    310,
+    415,
+]
+LIP = [
+    61,
+    185,
+    40,
+    39,
+    37,
+    0,
+    267,
+    269,
+    270,
+    409,
+    291,
+    146,
+    91,
+    181,
+    84,
+    17,
+    314,
+    405,
+    321,
+    375,
+    78,
+    191,
+    80,
+    81,
+    82,
+    13,
+    312,
+    311,
+    310,
+    415,
+    95,
+    88,
+    178,
+    87,
+    14,
+    317,
+    402,
+    318,
+    324,
+    308,
+]
 
 if __name__ == "__main__":
     dataset = ISLRDataSetV2()

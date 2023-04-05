@@ -33,7 +33,13 @@ parser.add_argument(
 parser.add_argument("--n_head", default=4, type=int, help="the number of multihead")
 parser.add_argument("--ff_dim", default=256, type=int, help="the dim of feedforward")
 parser.add_argument("--dropout", default=0.1, type=float, help="the prob of dropout")
-
+parser.add_argument(
+    "--cls_dropout", default=0.4, type=float, help="the prob of cls_dropout"
+)
+# ========================= Augmentation Configs ==========================
+parser.add_argument("--random_noise", default=False, type=bool)
+parser.add_argument("--flip_x", default=False, type=bool)
+parser.add_argument("--rotate", default=False, type=bool)
 # ========================= Preproc Configs ==========================
 parser.add_argument(
     "--preproc_ver", default="base", type=str, help="version of preprocessing"
@@ -50,8 +56,8 @@ parser.add_argument("--T_mult", default=1, type=int)
 parser.add_argument("--weight_decay", default=1e-2, type=float)
 parser.add_argument("--loss", default="ce", type=str)
 parser.add_argument("--lb", default=0.0, type=float, help="label smoothing alpha")
-parser.add_argument("--s", default=30, type=float, help="arcface scale")
-parser.add_argument("--m", default=0.1, type=float, help="arcface margin")
+parser.add_argument("--s", default=32, type=float, help="arcface scale")
+parser.add_argument("--m", default=0.5, type=float, help="arcface margin")
 parser.add_argument("--gclip", default=None, type=float)
 # ========================= Monitor Configs ==========================
 parser.add_argument("--eval_freq", default=5, type=int, help="evaluation frequency")

@@ -5,8 +5,10 @@ python train.py \
 --epochs 100 \
 --max_len 384 \
 --input_dim 912 \
---model_ver "v7" \
+--model_ver "v6" \
+--n_layers 4 \
 --dropout 0.2 \
---preproc_ver "xyzd_hdist_v2" \
---swa True \
---exp_name "test-v7-xyzd-hdist-v2-dp02-swa"
+--preproc_ver "v0" \
+--flip_x True \
+--lb 0.25 \
+--exp_name "test-mv0125-av02-pv0"
