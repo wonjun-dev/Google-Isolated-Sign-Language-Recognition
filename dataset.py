@@ -6,38 +6,6 @@ import torch
 from torch.utils.data import Dataset, DataLoader
 from preproc import (
     preprocess,
-    preprocess_centercrop,
-    preprocess_body,
-    preprocess_bodyarm,
-    preprocess_bodyarm2,
-    preprocess_wonorm,
-    preprocess_xyzd,
-    preprocess_xyzd_hdist,
-    preprocess_xyzd_hdist_v2,
-    preprocess_xyzd_hdist_v3,
-    preprocess_xyzd_hdist_v4,
-    preprocess_xyzd_hdist_v5,
-    preprocess_xyzd_hdist_v6,
-    preprocess_xyzd_hdist_interpolate,
-    preprocess_xyzd_hdist_hdistd,
-    preprocess_xyzd_hdist_nl,
-    preprocess_xyzd_hdist_pnv,
-    preprocess_xyzd_hdist_pnv_nl,
-    preprocess_bm0,
-    preprocess_bm0x5,
-    preprocess_smooth,
-    preprocess_v1,
-    preprocess_v1_1,
-    preprocess_v2,
-    preprocess_v3,
-    preprocess_v4,
-    preprocess_v5,
-    preprocess_v6,
-    preprocess_v7,
-    preprocess_v8,
-    preprocess_v8_1,
-    preprocess_v9,
-    preprocess_v9_1,
     preproc_v0,
     preproc_v0_1,
     preproc_v0_2,
@@ -46,7 +14,6 @@ from preproc import (
     preproc_v0_5,
     preproc_v0_6,
     preproc_v0_7,
-    preproc_v1,
 )
 
 from transforms import (
@@ -157,68 +124,6 @@ class ISLRDataSetV2(Dataset):
         xyz = torch.from_numpy(xyz).float()
         if self.ver == "base":
             xyz = preprocess(xyz, self.max_len)
-        elif self.ver == "base_centercrop":
-            xyz = preprocess_centercrop(xyz, self.max_len)
-        elif self.ver == "body":
-            xyz = preprocess_body(xyz, self.max_len)
-        elif self.ver == "bodyarm":
-            xyz = preprocess_bodyarm(xyz, self.max_len)
-        elif self.ver == "bodyarm2":
-            xyz = preprocess_bodyarm2(xyz, self.max_len)
-        elif self.ver == "wonrom_base":
-            xyz = preprocess_wonorm(xyz, self.max_len)
-        elif self.ver == "xyzd":
-            xyz = preprocess_xyzd(xyz, self.max_len)
-        elif self.ver == "xyzd_hdist":
-            xyz = preprocess_xyzd_hdist(xyz, self.max_len)
-        elif self.ver == "xyzd_hdist_v2":
-            xyz = preprocess_xyzd_hdist_v2(xyz, self.max_len)
-        elif self.ver == "xyzd_hdist_v3":
-            xyz = preprocess_xyzd_hdist_v3(xyz, self.max_len)
-        elif self.ver == "xyzd_hdist_v4":
-            xyz = preprocess_xyzd_hdist_v4(xyz, self.max_len)
-        elif self.ver == "xyzd_hdist_v5":
-            xyz = preprocess_xyzd_hdist_v5(xyz, self.max_len)
-        elif self.ver == "xyzd_hdist_v6":
-            xyz = preprocess_xyzd_hdist_v6(xyz, self.max_len)
-        elif self.ver == "xyzd_hdist_interp":
-            xyz = preprocess_xyzd_hdist_interpolate(xyz, self.max_len)
-        elif self.ver == "xyzd_hdist_hdistd":
-            xyz = preprocess_xyzd_hdist_hdistd(xyz, self.max_len)
-        elif self.ver == "xyzd_hdist_nl":
-            xyz = preprocess_xyzd_hdist_nl(xyz, self.max_len)
-        elif self.ver == "xyzd_hdist_pnv":
-            xyz = preprocess_xyzd_hdist_pnv(xyz, self.max_len)
-        elif self.ver == "xyzd_hdist_pnv_nl":
-            xyz = preprocess_xyzd_hdist_pnv_nl(xyz, self.max_len)
-        elif self.ver == "bm0":
-            xyz = preprocess_bm0(xyz, self.max_len)
-        elif self.ver == "bm0x5":
-            xyz = preprocess_bm0x5(xyz, self.max_len)
-        elif self.ver == "preproc_v1":
-            xyz = preprocess_v1(xyz, self.max_len)
-        elif self.ver == "preproc_v1_1":
-            xyz = preprocess_v1_1(xyz, self.max_len)
-        elif self.ver == "preproc_v2":
-            xyz = preprocess_v2(xyz, self.max_len)
-        elif self.ver == "preproc_v3":
-            xyz = preprocess_v3(xyz, self.max_len)
-        elif self.ver == "preproc_v4":
-            xyz = preprocess_v4(xyz, self.max_len)
-        elif self.ver == "preproc_v5":
-            xyz = preprocess_v5(xyz, self.max_len)
-        elif self.ver == "preproc_v6":
-            xyz = preprocess_v6(xyz, self.max_len)
-        elif self.ver == "preproc_v7":
-            xyz = preprocess_v7(xyz, self.max_len)
-        elif self.ver == "preproc_v8":
-            xyz = preprocess_v8(xyz, self.max_len)
-        elif self.ver == "preproc_v8_1":
-            xyz = preprocess_v8_1(xyz, self.max_len)
-        elif self.ver == "preproc_v9":
-            xyz = preprocess_v9(xyz, self.max_len)
-        elif self.ver == "preproc_v9_1":
-            xyz = preprocess_v9_1(xyz, self.max_len)
         elif self.ver == "v0":
             xyz = preproc_v0(xyz, self.max_len)
         elif self.ver == "v0_1":
@@ -235,8 +140,6 @@ class ISLRDataSetV2(Dataset):
             xyz = preproc_v0_6(xyz, self.max_len)
         elif self.ver == "v0_7":
             xyz = preproc_v0_7(xyz, self.max_len)
-        elif self.ver == "v1":
-            xyz = preproc_v1(xyz, self.max_len)
         else:
             raise NotImplementedError
 

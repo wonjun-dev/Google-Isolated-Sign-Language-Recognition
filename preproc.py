@@ -2612,49 +2612,6 @@ def preproc_v0_7(xyz, max_len):
     return x
 
 
-def preproc_v1(xyz, max_len):
-    """
-    same as v0_5
-    """
-    L = len(xyz)
-    if L > max_len:
-        i = (L - max_len) // 2
-        xyz = xyz[i : i + max_len]
-    L = len(xyz)
-
-    # noramlization
-    xyz = normalize_feature_3d(xyz[:, :, :2])
-    # selection
-    xyz = xyz[:, LHAND + RHAND + SLIP + POSE_SIM, :2]
-
-    # motion
-    dxyz = xyz[:-1] - xyz[1:]
-    dxyz = torch.from_numpy(np.pad(dxyz, [[0, 1], [0, 0], [0, 0]]))
-
-    # hand joint-wise distance
-    mask = torch.tril(torch.ones(L, 21, 21, dtype=torch.bool), diagonal=-1)
-    lhand = xyz[:, :21, :2]
-    ld = lhand.reshape(-1, 21, 1, 2) - lhand.reshape(-1, 1, 21, 2)
-    ld = torch.sqrt((ld**2).sum(-1))
-    ld = ld.masked_select(mask)
-
-    rhand = xyz[:, 21:42, :2]
-    rd = rhand.reshape(-1, 21, 1, 2) - rhand.reshape(-1, 1, 21, 2)
-    rd = torch.sqrt((rd**2).sum(-1))
-    rd = rd.masked_select(mask)
-
-    x = torch.cat(
-        [
-            xyz.reshape(L, -1),
-            dxyz.reshape(L, -1),
-            ld.reshape(L, -1),
-            rd.reshape(L, -1),
-        ],  # (none, 928)
-        -1,
-    )
-    x[torch.isnan(x)] = 0
-    return x
-
 
 if __name__ == "__main__":
     import os
