@@ -75,6 +75,14 @@ We used 5-layers Transformer encoder with cross entropy and sub-class Arcface lo
 - Label Smoothing
   - parameter: 0.2
   - +0.01 on CV
+- Hyper parameters
+  - Epochs: 140
+  - Max lenght: 64
+  - batch size: 64
+  - embed dim: 256
+  - num head: 4
+  - num layers: 5
+  - CosineAnnealingWarmRestarts w/ lr 1e-3 and AdamW
 
 
 
@@ -102,7 +110,7 @@ We used 5-layers Transformer encoder with cross entropy and sub-class Arcface lo
 
 ## Not working
 - GCN embedding layer instead of Linear
-- Spatial Attention
+- Stacking Spatial Attention & Temporal Conv. blocks
 - Distance between pose keypoints
 - Removing outlier and Retraining
   - We used anlge between learned Arcface subclass vector
