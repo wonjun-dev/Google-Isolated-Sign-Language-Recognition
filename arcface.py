@@ -7,14 +7,15 @@ import torch.nn.functional as F
 
 class ArcMarginProduct(nn.Module):
     def __init__(
-        self, in_feature=256, out_feature=250, s=30.0, m=0.10, easy_margin=False
+        self, in_feature=256, out_feature=250, s=32.0, m=0.10, easy_margin=False, K=3
     ):
         super(ArcMarginProduct, self).__init__()
         self.in_feature = in_feature
         self.out_feature = out_feature
         self.s = s
         self.m = m
-        self.weight = Parameter(torch.Tensor(out_feature, in_feature))
+        self.K = K
+        self.weight = Parameter(torch.Tensor(out_feature * K, in_feature))
         nn.init.xavier_uniform_(self.weight)
 
         self.easy_margin = easy_margin
@@ -28,6 +29,12 @@ class ArcMarginProduct(nn.Module):
     def forward(self, x, label):
         # cos(theta)
         cosine = F.linear(F.normalize(x), F.normalize(self.weight))
+        cosine = cosine.view(x.shape[0], self.out_feature, self.K)
+        cosine = F.max_pool1d(
+            cosine,
+            kernel_size=self.K,
+            stride=self.K,
+        ).squeeze(-1)
 
         if label is None:
             return cosine * self.s

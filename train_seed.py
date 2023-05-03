@@ -10,12 +10,15 @@ from datetime import datetime
 
 from torch.utils.tensorboard import SummaryWriter
 
-from model import ISLRModelV6, ISLRModelArcFace, ISLRModelArcFaceCE
-
+from model import (
+    ISLRModelV6,
+    ISLRModelArcFace,
+    ISLRModelArcFaceCE,
+)
 from dataset import ISLRDataSetV2, collate_func
 from options import parser
 from utils import AverageMeter, save_checkpoint, accuracy
-
+from arcface import ArcMarginProduct
 
 os.environ["CUDA_DEVICE_ORDER"] = "PCI_BUS_ID"
 os.environ["CUDA_VISIBLE_DEVICES"] = "1"
@@ -26,6 +29,7 @@ def main():
     args = parser.parse_args()
 
     ROOT_PATH = args.data_root_path
+    SEED = [999, 777, 555, 333]
 
     if not os.path.exists(os.path.join(args.log_path, args.exp_name)):
         os.makedirs(os.path.join(args.log_path, args.exp_name))
@@ -33,53 +37,55 @@ def main():
         os.makedirs(os.path.join(args.ckpt_path, args.exp_name))
 
     time_stamp = "{0:%Y-%m-%dT%H-%M-%S/}".format(datetime.now())
-    for cur_fold in range(1, args.folds + 1):
+    for cur_seed in SEED:
         best_acc = 0
 
-        print(f"####### Fold-{cur_fold} training start #######")
+        seed_everything(seed=cur_seed)
+        print(f"####### Seed-{cur_seed} training start #######")
         os.makedirs(
-            os.path.join(args.log_path, args.exp_name, time_stamp, str(cur_fold)),
+            os.path.join(args.log_path, args.exp_name, time_stamp, str(cur_seed)),
             exist_ok=True,
         )
         os.makedirs(
-            os.path.join(args.ckpt_path, args.exp_name, time_stamp, str(cur_fold)),
+            os.path.join(args.ckpt_path, args.exp_name, time_stamp, str(cur_seed)),
             exist_ok=True,
         )
         log_training = open(
             os.path.join(
-                args.log_path, args.exp_name, time_stamp, str(cur_fold), "log.csv"
+                args.log_path, args.exp_name, time_stamp, str(cur_seed), "log.csv"
             ),
             "w",
         )
         tf_writer = SummaryWriter(
-            os.path.join(args.log_path, args.exp_name, time_stamp, str(cur_fold))
+            os.path.join(args.log_path, args.exp_name, time_stamp, str(cur_seed))
         )
 
-        train_idx = np.load(os.path.join(ROOT_PATH, "cv", f"train_idx_f{cur_fold}.npy"))
-        val_idx = np.load(os.path.join(ROOT_PATH, "cv", f"val_idx_f{cur_fold}.npy"))
+        if args.clean_data:
+            indicies = np.load("/sources/dataset/outlier_remove_idx.npy")
+            train_dataset = ISLRDataSetV2(
+                max_len=args.max_len,
+                ver=args.preproc_ver,
+                indicies=indicies,
+                random_noise=args.random_noise,
+                flip_x=args.flip_x,
+                flip_x_v2=args.flip_x_v2,
+                rotate=args.rotate,
+                drop_lm=args.drop_lm,
+                interpolate=args.interpolate,
+            )
 
-        train_dataset = ISLRDataSetV2(
-            max_len=args.max_len,
-            ver=args.preproc_ver,
-            indicies=train_idx,
-            random_noise=args.random_noise,
-            flip_x=args.flip_x,
-            flip_x_v2=args.flip_x_v2,
-            rotate=args.rotate,
-            drop_lm=args.drop_lm,
-            interpolate=args.interpolate,
-        )
-        val_dataset = ISLRDataSetV2(
-            max_len=args.max_len,
-            ver=args.preproc_ver,
-            indicies=val_idx,
-            random_noise=False,
-            flip_x=False,
-            flip_x_v2=False,
-            rotate=False,
-            drop_lm=False,
-            interpolate=False,
-        )
+        else:
+            train_dataset = ISLRDataSetV2(
+                max_len=args.max_len,
+                ver=args.preproc_ver,
+                indicies=None,
+                random_noise=args.random_noise,
+                flip_x=args.flip_x,
+                flip_x_v2=args.flip_x_v2,
+                rotate=args.rotate,
+                drop_lm=args.drop_lm,
+                interpolate=args.interpolate,
+            )
 
         train_loader = torch.utils.data.DataLoader(
             train_dataset,
@@ -88,15 +94,6 @@ def main():
             num_workers=args.workers,
             pin_memory=False,
             drop_last=True,
-            collate_fn=collate_func,
-        )
-
-        val_loader = torch.utils.data.DataLoader(
-            val_dataset,
-            batch_size=args.batch_size,
-            shuffle=False,
-            num_workers=args.workers,
-            pin_memory=False,
             collate_fn=collate_func,
         )
 
@@ -111,7 +108,6 @@ def main():
                 n_layers=args.n_layers,
                 input_dim=args.input_dim,
             )
-
         elif args.model_ver == "arcface":
             model = ISLRModelArcFace(
                 embed_dim=args.embed_dim,
@@ -156,7 +152,15 @@ def main():
         )
         ####### Loss #######
         if args.loss == "ce":
-            criterion = nn.CrossEntropyLoss(label_smoothing=args.lb).cuda()
+            if args.weight:
+                weight = np.load("/sources/dataset/weight.npy")
+                weight = torch.from_numpy(weight)
+            else:
+                weight = None
+            ce_criterion = nn.CrossEntropyLoss(
+                label_smoothing=args.lb, weight=weight
+            ).cuda()
+            arc_criterion = nn.CrossEntropyLoss(label_smoothing=args.lb).cuda()
         else:
             raise NotImplementedError
 
@@ -167,12 +171,15 @@ def main():
             swa_scheduler = SWALR(optimizer, swa_lr=1.5e-4)
 
         ####### Loop #######
-
         for epoch in range(1, args.epochs + 1):
+            if args.sd and epoch >= args.epochs // 2:
+                model.module.cls_p = 0.4
+
             train(
                 train_loader,
                 model,
-                criterion,
+                ce_criterion,
+                arc_criterion,
                 optimizer,
                 epoch,
                 log_training,
@@ -185,29 +192,18 @@ def main():
                 scheduler.step()
 
             if epoch % args.eval_freq == 0:
-                val_loss, val_acc = validate(
-                    val_loader, model, criterion, epoch, log_training, tf_writer
-                )
-
-                is_best = val_acc >= best_acc
-                best_acc = max(val_acc, best_acc)
-                output_best = "Valid Best Acc: %.5f\n" % (best_acc)
-                print(output_best)
-                log_training.write(output_best + "\n")
-                log_training.flush()
-
                 save_checkpoint(
                     {
                         "state_dict": swa_model.state_dict()
                         if args.swa
                         else model.state_dict()
                     },
-                    is_best,
-                    args.ckpt_path,
-                    args.exp_name,
-                    time_stamp,
-                    cur_fold,
-                    epoch,
+                    is_best=False,
+                    ckpt_path=args.ckpt_path,
+                    exp_name=args.exp_name,
+                    time_stamp=time_stamp,
+                    fold=cur_seed,
+                    epoch=epoch,
                 )
                 tf_writer.close()
 
@@ -215,7 +211,8 @@ def main():
 def train(
     train_loader,
     model,
-    criterion,
+    ce_criterion,
+    arc_criterion,
     optimizer,
     epoch,
     log_training,
@@ -231,7 +228,7 @@ def train(
 
         if isinstance(output, tuple):
             # 1. softamx, 2. arcface
-            loss = args.alpha * criterion(output[0], y) + args.beta * criterion(
+            loss = args.alpha * ce_criterion(output[0], y) + args.beta * arc_criterion(
                 output[1], y
             )
             if args.alpha > args.beta:
@@ -240,7 +237,7 @@ def train(
                 acc = accuracy(output[1], y)
 
         else:
-            loss = criterion(output, y)
+            loss = ce_criterion(output, y)
             acc = accuracy(output, y)
 
         losses.update(loss.item(), y.size(0))
@@ -270,7 +267,16 @@ def train(
     accs.reset()
 
 
-def validate(val_loader, model, criterion, epoch, log_training, tf_writer, margin=None):
+def validate(
+    val_loader,
+    model,
+    ce_criterion,
+    arc_criterion,
+    epoch,
+    log_training,
+    tf_writer,
+    margin=None,
+):
     losses = AverageMeter()
     accs = AverageMeter()
     model.eval()
@@ -282,15 +288,17 @@ def validate(val_loader, model, criterion, epoch, log_training, tf_writer, margi
 
             if isinstance(output, tuple):
                 # 1. softamx, 2. arcface
-                loss = args.alpha * criterion(output[0], y) + args.beta * criterion(
-                    output[1], y
-                )
+                loss = args.alpha * ce_criterion(
+                    output[0], y
+                ) + args.beta * arc_criterion(output[1], y)
+
                 if args.alpha > args.beta:
                     acc = accuracy(output[0], y)
                 else:
                     acc = accuracy(output[1], y)
+
             else:
-                loss = criterion(output, y)
+                loss = ce_criterion(output, y)
                 acc = accuracy(output, y)
 
             losses.update(loss.item(), y.size(0))
@@ -318,5 +326,4 @@ def seed_everything(seed):
 
 
 if __name__ == "__main__":
-    seed_everything(seed=777)
     main()

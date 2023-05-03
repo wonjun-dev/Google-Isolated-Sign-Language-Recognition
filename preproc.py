@@ -1,6 +1,7 @@
 import torch
 import numpy as np
 from scipy.interpolate import interp1d
+import torch.nn.functional as F
 
 LIP = [
     61,
@@ -44,56 +45,6 @@ LIP = [
     324,
     308,
 ]
-
-POSE_OFFSET = 489
-BODY = [
-    489,
-    490,
-    491,
-    492,
-    493,
-    494,
-    495,
-    496,
-    497,
-    498,
-    499,
-    500,
-    501,
-    512,
-    513,
-]  #  [0~10, 11, 12, 23, 24]
-ARM = [
-    502,
-    503,
-    504,
-    505,
-    506,
-    507,
-    508,
-    509,
-    510,
-    511,
-]  # [13, 14, 15, 16, 17, 18, 19, 20, 21, 22]
-LARM = [500, 502, 504]  # [11, 13, 15]
-RARM = [501, 503, 505]  # [12, 14, 16]
-POSE = BODY + ARM[:4]
-
-LH_OFFSET = 468
-LHAND = [LH_OFFSET + i for i in range(21)]
-RH_OFFSET = 522
-RHAND = [RH_OFFSET + i for i in range(21)]
-
-# 27 points (https://aclanthology.org/2022.acl-long.150.pdf)
-simple_hand = [0, 4, 5, 8, 9, 12, 13, 16, 17, 20]
-LHAND_SIM = [LH_OFFSET + i for i in simple_hand]
-RHAND_SIM = [RH_OFFSET + i for i in simple_hand]
-
-simple_pose = [0, 1, 4, 11, 12, 13, 14, 15, 16]
-POSE_SIM = [POSE_OFFSET + i for i in simple_pose]
-SPOSE = [POSE_OFFSET + i for i in simple_pose + [23, 24]]
-
-simple_lips = [0, 291, 17, 61, 13, 308, 14, 78]
 SLIP = [
     78,
     95,
@@ -116,6 +67,13 @@ SLIP = [
     310,
     415,
 ]
+LH_OFFSET = 468
+LHAND = [LH_OFFSET + i for i in range(21)]
+RH_OFFSET = 522
+RHAND = [RH_OFFSET + i for i in range(21)]
+
+POSE_OFFSET = 489
+SPOSE = [POSE_OFFSET + i for i in [0, 1, 4, 11, 12, 13, 14, 15, 16, 23, 24]]
 REYE = [
     33,
     7,
@@ -155,8 +113,37 @@ LEYE = [
 NOSE = [1, 2, 98, 327]
 
 
-def spoter_noramlize(xyz, max_len):
-    pass
+def arm_angle(xyz):
+    p11, p13, p15, p23 = xyz[:, 85], xyz[:, 87], xyz[:, 89], xyz[:, 91]
+    p12, p14, p16, p24 = xyz[:, 86], xyz[:, 88], xyz[:, 90], xyz[:, 92]
+    v11_13, v11_23, v13_11, v13_15 = p13 - p11, p23 - p11, p11 - p13, p15 - p13
+    v12_14, v12_24, v14_12, v14_16 = p14 - p12, p24 - p12, p12 - p14, p16 - p14
+    angles = torch.stack(
+        [
+            get_angle(v11_13, v11_23),
+            get_angle(v13_11, v13_15),
+            get_angle(v12_14, v12_24),
+            get_angle(v14_12, v14_16),
+        ],
+        dim=1,
+    )
+
+    return angles
+
+
+def get_angle(v1, v2):
+    nv1, nv2 = v1 / torch.norm(v1, dim=1, p=2, keepdim=True), v2 / torch.norm(
+        v2, dim=1, p=2, keepdim=True
+    )
+    cos = torch.sum(nv1 * nv2, dim=1) / (
+        (
+            torch.sqrt(torch.sum(nv1**2, dim=1))
+            * torch.sqrt(torch.sum(nv2**2, dim=1))
+        )
+        + 1e-10
+    )
+
+    return torch.acos(cos)
 
 
 def preprocess_wonorm(xyz, max_len):
@@ -2581,7 +2568,8 @@ def preproc_v0_7(xyz, max_len):
     # noramlization
     xyz = normalize_feature_3d(xyz[:, :, :2])
     # selection
-    xyz = xyz[:, LHAND + RHAND + LIP + POSE_SIM + LEYE + REYE + NOSE, :2]
+    # xyz = xyz[:, LHAND + RHAND + LIP + POSE_SIM + LEYE + REYE + NOSE, :2]
+    xyz = xyz[:, LHAND + RHAND + LIP + SPOSE + LEYE + REYE + NOSE, :2]
 
     # motion
     dxyz = xyz[:-1] - xyz[1:]
@@ -2605,12 +2593,464 @@ def preproc_v0_7(xyz, max_len):
             dxyz.reshape(L, -1),
             ld.reshape(L, -1),
             rd.reshape(L, -1),
-        ],  # (none, 784)
+        ],  # (none, 928 or)
         -1,
     )
     x[torch.isnan(x)] = 0
     return x
 
+
+def preproc_v0_8(xyz, max_len):
+    """
+    v0_7 + some joint distances
+    """
+    L = len(xyz)
+    if L > max_len:
+        i = (L - max_len) // 2
+        xyz = xyz[i : i + max_len]
+    L = len(xyz)
+
+    # noramlization
+    xyz = normalize_feature_3d(xyz[:, :, :2])
+    # selection
+    # xyz = xyz[:, LHAND + RHAND + LIP + POSE_SIM + LEYE + REYE + NOSE, :2]
+    xyz = xyz[:, LHAND + RHAND + LIP + SPOSE + LEYE + REYE + NOSE, :2]
+
+    # motion
+    dxyz = xyz[:-1] - xyz[1:]
+    dxyz = torch.from_numpy(np.pad(dxyz, [[0, 1], [0, 0], [0, 0]]))
+
+    # hand joint-wise distance
+    mask = torch.tril(torch.ones(L, 21, 21, dtype=torch.bool), diagonal=-1)
+    lhand = xyz[:, :21, :2]
+    ld = lhand.reshape(-1, 21, 1, 2) - lhand.reshape(-1, 1, 21, 2)
+    ld = torch.sqrt((ld**2).sum(-1))
+    ld = ld.masked_select(mask)
+
+    rhand = xyz[:, 21:42, :2]
+    rd = rhand.reshape(-1, 21, 1, 2) - rhand.reshape(-1, 1, 21, 2)
+    rd = torch.sqrt((rd**2).sum(-1))
+    rd = rd.masked_select(mask)
+
+    # pose joint-wise distance
+    mask = torch.tril(torch.ones(L, 11, 11, dtype=torch.bool), diagonal=-1)
+    spose = xyz[:, 82:93, :2]
+    pd = spose.reshape(-1, 11, 1, 2) - spose.reshape(-1, 1, 11, 2)
+    pd = torch.sqrt((pd**2).sum(-1))
+    pd = pd.masked_select(mask)
+
+    x = torch.cat(
+        [
+            xyz.reshape(L, -1),
+            dxyz.reshape(L, -1),
+            ld.reshape(L, -1),
+            rd.reshape(L, -1),
+            pd.reshape(L, -1),
+        ],  # (none, 991)
+        -1,
+    )
+    x[torch.isnan(x)] = 0
+    return x
+
+
+def preproc_v0_9(xyz, max_len):
+    """
+    v0_7 + reverse 프레임 차이
+    """
+    L = len(xyz)
+    if L > max_len:
+        i = (L - max_len) // 2
+        xyz = xyz[i : i + max_len]
+    L = len(xyz)
+
+    # noramlization
+    xyz = normalize_feature_3d(xyz[:, :, :2])
+    # selection
+    # xyz = xyz[:, LHAND + RHAND + LIP + POSE_SIM + LEYE + REYE + NOSE, :2]
+    xyz = xyz[:, LHAND + RHAND + LIP + SPOSE + LEYE + REYE + NOSE, :2]
+
+    # motion
+    dxyz = xyz[:-1] - xyz[1:]
+    dxyz = torch.from_numpy(np.pad(dxyz, [[0, 1], [0, 0], [0, 0]]))
+
+    # hand joint-wise distance
+    mask = torch.tril(torch.ones(L, 21, 21, dtype=torch.bool), diagonal=-1)
+    lhand = xyz[:, :21, :2]
+    ld = lhand.reshape(-1, 21, 1, 2) - lhand.reshape(-1, 1, 21, 2)
+    ld = torch.sqrt((ld**2).sum(-1))
+    ld = ld.masked_select(mask)
+
+    rhand = xyz[:, 21:42, :2]
+    rd = rhand.reshape(-1, 21, 1, 2) - rhand.reshape(-1, 1, 21, 2)
+    rd = torch.sqrt((rd**2).sum(-1))
+    rd = rd.masked_select(mask)
+
+    # reverse difference
+    rdxyz = xyz - xyz.flip(dims=[0])
+
+    x = torch.cat(
+        [
+            xyz.reshape(L, -1),
+            dxyz.reshape(L, -1),
+            ld.reshape(L, -1),
+            rd.reshape(L, -1),
+            rdxyz.reshape(L, -1),
+        ],  # (none, 1194)
+        -1,
+    )
+    x[torch.isnan(x)] = 0
+    return x
+
+
+def preproc_v0_91(xyz, max_len=256, window=64):
+    """
+    v0_9 + fixed frame size (interpolation)
+    """
+    L = len(xyz)
+    if L > max_len:
+        i = (L - max_len) // 2
+        xyz = xyz[i : i + max_len]
+    L = len(xyz)
+
+    # noramlization
+    xyz = normalize_feature_3d(xyz[:, :, :2])
+    # selection
+    # xyz = xyz[:, LHAND + RHAND + LIP + POSE_SIM + LEYE + REYE + NOSE, :2]
+    xyz = xyz[:, LHAND + RHAND + LIP + SPOSE + LEYE + REYE + NOSE, :2]
+
+    # interpolation
+    L, V, C = xyz.shape
+    xyz = xyz.permute(1, 2, 0).contiguous().view(V * C, L)
+    xyz = xyz[None, None, :, :]
+    xyz = F.interpolate(
+        xyz, size=(V * C, window), mode="bilinear", align_corners=False
+    ).squeeze()
+    xyz = xyz.view(V, C, -1).permute(2, 0, 1).contiguous()  # [L, V, C]
+    L, V, C = xyz.shape
+
+    # motion
+    dxyz = xyz[:-1] - xyz[1:]
+    dxyz = torch.from_numpy(np.pad(dxyz, [[0, 1], [0, 0], [0, 0]]))
+
+    # hand joint-wise distance
+    mask = torch.tril(torch.ones(L, 21, 21, dtype=torch.bool), diagonal=-1)
+    lhand = xyz[:, :21, :2]
+    ld = lhand.reshape(-1, 21, 1, 2) - lhand.reshape(-1, 1, 21, 2)
+    ld = torch.sqrt((ld**2).sum(-1))
+    ld = ld.masked_select(mask)
+
+    rhand = xyz[:, 21:42, :2]
+    rd = rhand.reshape(-1, 21, 1, 2) - rhand.reshape(-1, 1, 21, 2)
+    rd = torch.sqrt((rd**2).sum(-1))
+    rd = rd.masked_select(mask)
+
+    # reverse difference
+    rdxyz = xyz - xyz.flip(dims=[0])
+
+    x = torch.cat(
+        [
+            xyz.reshape(L, -1),
+            dxyz.reshape(L, -1),
+            ld.reshape(L, -1),
+            rd.reshape(L, -1),
+            rdxyz.reshape(L, -1),
+        ],  # (none, 1194)
+        -1,
+    )
+    x[torch.isnan(x)] = 0
+    return x
+
+
+def preproc_v0_92(xyz, max_len=384, window=64):
+    """
+    v0_91 + 1. crop center -> smapling, 2. interpolation dynamically
+    """
+    L = len(xyz)
+    if L > max_len:
+        step = (L - 1) // (max_len - 1)
+        indices = [i * step for i in range(max_len)]
+        xyz = xyz[indices]
+    L = len(xyz)
+
+    # noramlization
+    xyz = normalize_feature_3d(xyz[:, :, :2])
+    # selection
+    # xyz = xyz[:, LHAND + RHAND + LIP + POSE_SIM + LEYE + REYE + NOSE, :2]
+    xyz = xyz[:, LHAND + RHAND + LIP + SPOSE + LEYE + REYE + NOSE, :2]
+
+    # interpolation
+    L, V, C = xyz.shape
+    xyz = xyz.permute(1, 2, 0).contiguous().view(V * C, L)
+    xyz = xyz[None, None, :, :]
+
+    if L <= window:
+        resize = min(2 * L, window)
+    elif L > window:
+        resize = min(L // 2, window)
+
+    xyz = F.interpolate(
+        xyz, size=(V * C, resize), mode="bilinear", align_corners=False
+    ).squeeze()
+    xyz = xyz.view(V, C, -1).permute(2, 0, 1).contiguous()  # [L, V, C]
+    L, V, C = xyz.shape
+
+    # motion
+    dxyz = xyz[:-1] - xyz[1:]
+    dxyz = torch.from_numpy(np.pad(dxyz, [[0, 1], [0, 0], [0, 0]]))
+
+    # hand joint-wise distance
+    mask = torch.tril(torch.ones(L, 21, 21, dtype=torch.bool), diagonal=-1)
+    lhand = xyz[:, :21, :2]
+    ld = lhand.reshape(-1, 21, 1, 2) - lhand.reshape(-1, 1, 21, 2)
+    ld = torch.sqrt((ld**2).sum(-1))
+    ld = ld.masked_select(mask)
+
+    rhand = xyz[:, 21:42, :2]
+    rd = rhand.reshape(-1, 21, 1, 2) - rhand.reshape(-1, 1, 21, 2)
+    rd = torch.sqrt((rd**2).sum(-1))
+    rd = rd.masked_select(mask)
+
+    # reverse difference
+    rdxyz = xyz - xyz.flip(dims=[0])
+
+    x = torch.cat(
+        [
+            xyz.reshape(L, -1),
+            dxyz.reshape(L, -1),
+            ld.reshape(L, -1),
+            rd.reshape(L, -1),
+            rdxyz.reshape(L, -1),
+        ],  # (none, 1194)
+        -1,
+    )
+    x[torch.isnan(x)] = 0
+    return x
+
+
+def preproc_v0_93(xyz, max_len):
+    """
+    v0_9 + 1. center crop -> sampling
+    """
+    L = len(xyz)
+    if L > max_len:
+        step = (L - 1) // (max_len - 1)
+        indices = [i * step for i in range(max_len)]
+        xyz = xyz[indices]
+    L = len(xyz)
+
+    # noramlization
+    xyz = normalize_feature_3d(xyz[:, :, :2])
+    # selection
+    # xyz = xyz[:, LHAND + RHAND + LIP + POSE_SIM + LEYE + REYE + NOSE, :2]
+    xyz = xyz[:, LHAND + RHAND + LIP + SPOSE + LEYE + REYE + NOSE, :2]
+
+    # motion
+    dxyz = xyz[:-1] - xyz[1:]
+    dxyz = torch.from_numpy(np.pad(dxyz, [[0, 1], [0, 0], [0, 0]]))
+
+    # hand joint-wise distance
+    mask = torch.tril(torch.ones(L, 21, 21, dtype=torch.bool), diagonal=-1)
+    lhand = xyz[:, :21, :2]
+    ld = lhand.reshape(-1, 21, 1, 2) - lhand.reshape(-1, 1, 21, 2)
+    ld = torch.sqrt((ld**2).sum(-1))
+    ld = ld.masked_select(mask)
+
+    rhand = xyz[:, 21:42, :2]
+    rd = rhand.reshape(-1, 21, 1, 2) - rhand.reshape(-1, 1, 21, 2)
+    rd = torch.sqrt((rd**2).sum(-1))
+    rd = rd.masked_select(mask)
+
+    # reverse difference
+    rdxyz = xyz - xyz.flip(dims=[0])
+
+    x = torch.cat(
+        [
+            xyz.reshape(L, -1),
+            dxyz.reshape(L, -1),
+            ld.reshape(L, -1),
+            rd.reshape(L, -1),
+            rdxyz.reshape(L, -1),
+        ],  # (none, 1194)
+        -1,
+    )
+    x[torch.isnan(x)] = 0
+    return x
+
+
+def preproc_v0_94(xyz, max_len):
+    """
+    v0_9 + 1. center crop -> sampling, 2. angle
+    """
+    L = len(xyz)
+    if L > max_len:
+        step = (L - 1) // (max_len - 1)
+        indices = [i * step for i in range(max_len)]
+        xyz = xyz[indices]
+    L = len(xyz)
+
+    # noramlization
+    xyz = normalize_feature_3d(xyz[:, :, :2])
+    # selection
+    # xyz = xyz[:, LHAND + RHAND + LIP + POSE_SIM + LEYE + REYE + NOSE, :2]
+    xyz = xyz[:, LHAND + RHAND + LIP + SPOSE + LEYE + REYE + NOSE, :2]
+
+    ## angles
+    angles = arm_angle(xyz)
+
+    # motion
+    dxyz = xyz[:-1] - xyz[1:]
+    dxyz = torch.from_numpy(np.pad(dxyz, [[0, 1], [0, 0], [0, 0]]))
+
+    # hand joint-wise distance
+    mask = torch.tril(torch.ones(L, 21, 21, dtype=torch.bool), diagonal=-1)
+    lhand = xyz[:, :21, :2]
+    ld = lhand.reshape(-1, 21, 1, 2) - lhand.reshape(-1, 1, 21, 2)
+    ld = torch.sqrt((ld**2).sum(-1))
+    ld = ld.masked_select(mask)
+
+    rhand = xyz[:, 21:42, :2]
+    rd = rhand.reshape(-1, 21, 1, 2) - rhand.reshape(-1, 1, 21, 2)
+    rd = torch.sqrt((rd**2).sum(-1))
+    rd = rd.masked_select(mask)
+
+    # reverse difference
+    rdxyz = xyz - xyz.flip(dims=[0])
+
+    x = torch.cat(
+        [
+            xyz.reshape(L, -1),
+            dxyz.reshape(L, -1),
+            ld.reshape(L, -1),
+            rd.reshape(L, -1),
+            rdxyz.reshape(L, -1),
+            angles.reshape(L, -1),
+        ],  # (none, 1198)
+        -1,
+    )
+    x[torch.isnan(x)] = 0
+    return x
+
+
+# HyperFormer
+def preproc_v1(xyz, max_len=256, window=64):
+    # resize
+    T, V, C = xyz.shape
+    if T > max_len:
+        i = (T - max_len) // 2
+        xyz = xyz[i : i + max_len]
+    T = xyz.shape[0]
+
+    xyz = xyz.permute(1, 2, 0).contiguous().view(V * C, T)
+    xyz = xyz[None, None, :, :]
+    xyz = F.interpolate(
+        xyz, size=(V * C, window), mode="bilinear", align_corners=False
+    ).squeeze()
+    xyz = xyz.view(V, C, -1).permute(1, 2, 0).contiguous()  # C, T, V
+
+    # select
+    xyz = xyz[:2, :, LHAND + RHAND + SPOSE]
+    mask = torch.zeros_like(xyz)
+    mask[torch.isnan(xyz)] = 1
+    xyz[torch.isnan(xyz)] = 0
+    return xyz, mask[0]
+
+
+# GCN embedding
+def preproc_v1_1(xyz, max_len=384):
+    # resize
+    T, V, C = xyz.shape
+    if T > max_len:
+        i = (T - max_len) // 2
+        xyz = xyz[i : i + max_len]
+    T = xyz.shape[0]
+
+    # noramlization
+    xyz = normalize_feature_3d(xyz[:, :, :2])
+    # selection
+    xyz = xyz[:, LHAND + RHAND + SPOSE, :2]  # [T, 53, 2]
+    xyz[torch.isnan(xyz)] = 0
+    return xyz
+
+
+# v1-1 + dxy
+def preproc_v1_2(xyz, max_len=384):
+    # resize
+    T, V, C = xyz.shape
+    if T > max_len:
+        i = (T - max_len) // 2
+        xyz = xyz[i : i + max_len]
+    T = xyz.shape[0]
+
+    # noramlization
+    xyz = normalize_feature_3d(xyz[:, :, :2])
+    # selection
+    xyz = xyz[:, LHAND + RHAND + SPOSE, :2]  # [T, 53, 2]
+    # motion
+    dxyz = xyz[:-1] - xyz[1:]
+    dxyz = torch.from_numpy(np.pad(dxyz, [[0, 1], [0, 0], [0, 0]]))
+
+    xyz = torch.cat(
+        [xyz, dxyz],  # (T, 53, 4)
+        -1,
+    )
+
+    xyz[torch.isnan(xyz)] = 0
+    return xyz
+
+
+# v1_2 + distance
+def preproc_v1_3(xyz, max_len=384, window=64):
+    # resize
+    T, V, C = xyz.shape
+    if T > max_len:
+        step = (T - 1) // (max_len - 1)
+        indices = [i * step for i in range(max_len)]
+        xyz = xyz[indices]
+    T = xyz.shape[0]
+
+    # noramlization
+    xyz = normalize_feature_3d(xyz[:, :, :2])
+    # selection
+    xyz = xyz[:, LHAND + RHAND + SPOSE, :2]  # [T, 53, 2]
+
+    # interpolation
+    T, V, C = xyz.shape
+    xyz = xyz.permute(1, 2, 0).contiguous().view(V * C, T)
+    xyz = xyz[None, None, :, :]
+
+    if T <= window:
+        resize = min(2 * T, window)
+    elif T > window:
+        resize = min(T // 2, window)
+
+    xyz = F.interpolate(
+        xyz, size=(V * C, resize), mode="bilinear", align_corners=False
+    ).squeeze()
+    xyz = xyz.view(V, C, -1).permute(2, 0, 1).contiguous()  # [T, V, C]
+    T, V, C = xyz.shape
+
+    # motion
+    dxyz = xyz[:-1] - xyz[1:]
+    dxyz = torch.from_numpy(np.pad(dxyz, [[0, 1], [0, 0], [0, 0]]))
+
+    # joint-wise distance
+    mask = (1 - torch.eye(53)).to(torch.bool)
+    mask = mask.repeat(T, 1, 1)
+    distance = xyz.reshape(-1, 53, 1, 2) - xyz.reshape(-1, 1, 53, 2)
+    distance = torch.sqrt((distance**2).sum(-1))
+    distance = distance.masked_select(mask)
+    distance = distance.reshape(T, 53, 52)
+
+    # reverse difference
+    rdxyz = xyz - xyz.flip(dims=[0])
+
+    xyz = torch.cat(
+        [xyz, dxyz, distance, rdxyz],  # (T, 53, 58)
+        -1,
+    )
+
+    xyz[torch.isnan(xyz)] = 0
+    return xyz
 
 
 if __name__ == "__main__":
@@ -2622,9 +3062,18 @@ if __name__ == "__main__":
         "/sources/dataset/train_landmark_files/2044/635217.parquet"
     )
     xyz = torch.from_numpy(xyz).float()
-    xyz = preproc_v0_6(xyz, max_len)
-    # print(xyz[5, 124:142])
+    xyz = preproc_v0_93(xyz, max_len)
     print(xyz.shape)
-    print(xyz[5])
+    print(xyz)
+    # print(mask.shape)
+    # print(xyz[5, 124:142])
+    # print(xyz.shape)
+    # for i in range(64):
+    #     print(raw_xyz[i][:, 0])
+    #     print(xyz[0][i])
+    #     print('---')
+
+    #     if i == 5:
+    #         break
     print(min(xyz[5]))
     print(max(xyz[5]))

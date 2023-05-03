@@ -1,1 +1,2 @@
-# Kaggle-ISLR
+# Google - Isolated Sign Language Recognition
+

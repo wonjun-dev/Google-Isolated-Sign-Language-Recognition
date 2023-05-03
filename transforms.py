@@ -1,4 +1,6 @@
 import numpy as np
+import torch.nn.functional as F
+import torch
 
 
 def random_noise(xyz, mean=0, std=1e-3):
@@ -17,12 +19,6 @@ def flip_x_hand(lhand, rhand):
     lhand[..., 0] *= -1
     rhand, lhand = lhand, rhand
     return lhand, rhand
-
-
-def flip_x_spose(spose):
-    spose[..., 0] *= -1
-    spose = spose[:, [0, 2, 1, 4, 3, 6, 5, 8, 7]]
-    return spose
 
 
 def flip_x_slip(slip):
@@ -45,6 +41,25 @@ def flip_x_lip(lip):
     return lip
 
 
+def flip_x_spose(spose):
+    spose[..., 0] *= -1
+    spose = spose[:, [0, 2, 1, 4, 3, 6, 5, 8, 7, 10, 9]]
+    return spose
+
+
+def flip_x_eye(leye, reye):
+    reye[..., 0] *= -1
+    leye[..., 0] *= -1
+    reye, leye = leye, reye
+    return leye, reye
+
+
+def flip_x_nose(nose):
+    nose[..., 0] *= -1
+    nose = nose[:, [0, 1, 3, 2]]
+    return nose
+
+
 def rotate(xyz, theta):
     radian = np.radians(theta)
     mat = np.array(
@@ -57,38 +72,34 @@ def rotate(xyz, theta):
     return xyz_rotate[:, :, :2] + 0.5
 
 
+def drop_landmark(lhand, rhand, p=0.05):
+    L = lhand.shape[0]
+    mask = np.random.choice([0, 1], size=(L, 21, 1), p=[p, 1 - p])
+    lhand *= mask
+    rhand *= mask
+    return lhand, rhand
+
+
+def interpolate(xyz, ratio):
+    L, V, C = xyz.shape
+    xyz = torch.from_numpy(xyz)
+    xyz = xyz.permute(1, 2, 0).contiguous().view(V * C, L)
+    xyz = xyz[None, None, :, :]
+
+    resize = int(L * (1 + ratio))
+
+    xyz = F.interpolate(
+        xyz, size=(V * C, resize), mode="bilinear", align_corners=False
+    ).squeeze()
+    xyz = xyz.view(V, C, -1).permute(2, 0, 1).contiguous()  # [L, V, C]
+
+    return xyz.numpy()
+
+
 if __name__ == "__main__":
     import os
     from dataset import load_relevant_data_subset
 
-    LH_OFFSET = 468
-    LHAND = [LH_OFFSET + i for i in range(21)]
-    RH_OFFSET = 522
-    RHAND = [RH_OFFSET + i for i in range(21)]
-    simple_pose = [0, 1, 4, 11, 12, 13, 14, 15, 16]
-    POSE_SIM = [489 + i for i in simple_pose]
-    SLIP = [
-        78,
-        95,
-        88,
-        178,
-        87,
-        14,
-        317,
-        402,
-        318,
-        324,
-        308,
-        191,
-        80,
-        81,
-        82,
-        13,
-        312,
-        311,
-        310,
-        415,
-    ]
     LIP = [
         61,
         185,
@@ -131,40 +142,85 @@ if __name__ == "__main__":
         324,
         308,
     ]
+    SLIP = [
+        78,
+        95,
+        88,
+        178,
+        87,
+        14,
+        317,
+        402,
+        318,
+        324,
+        308,
+        191,
+        80,
+        81,
+        82,
+        13,
+        312,
+        311,
+        310,
+        415,
+    ]
+    LH_OFFSET = 468
+    LHAND = [LH_OFFSET + i for i in range(21)]
+    RH_OFFSET = 522
+    RHAND = [RH_OFFSET + i for i in range(21)]
+
+    POSE_OFFSET = 489
+    SPOSE = [POSE_OFFSET + i for i in [0, 1, 4, 11, 12, 13, 14, 15, 16, 23, 24]]
+    REYE = [
+        33,
+        7,
+        163,
+        144,
+        145,
+        153,
+        154,
+        155,
+        133,
+        246,
+        161,
+        160,
+        159,
+        158,
+        157,
+        173,
+    ]
+    LEYE = [
+        263,
+        249,
+        390,
+        373,
+        374,
+        380,
+        381,
+        382,
+        362,
+        466,
+        388,
+        387,
+        386,
+        385,
+        384,
+        398,
+    ]
+    NOSE = [1, 2, 98, 327]
 
     max_len = 384
     xyz = load_relevant_data_subset(
         "/sources/dataset/train_landmark_files/2044/635217.parquet"
     )
-    print(xyz[0, 0])
-    xyz = np.ones((1, 1, 3))
-    print("---")
-    print(
-        rotate(
-            xyz[
-                :,
-                :,
-            ],
-            90,
-        )
-    )
-    # # print(xyz[0, :5])
-    # xyz = random_noise(xyz)
-    # # print(xyz[0, :5])
-
     # lhand, rhand = xyz[:, LHAND], xyz[:, RHAND]
-    # slip = xyz[:, SLIP]
-    # spose = xyz[:, POSE_SIM]
-    # print(spose[0])
+    # print(lhand, rhand)
+    # lhand, rhand = drop_landmark(lhand, rhand)
+    # print("---")
+    # print(lhand, rhand)
 
-    # lhand, rhand = flip_x_hand(lhand, rhand)
-    # slip = flip_x_slip(slip)
-    # spose = flip_x_spose(spose)
-    # print(spose[0])
-
-    # print(xyz[:])
-    # xyz[:, SLIP] = slip
-    # xyz[:, LHAND] = lhand
-    # xyz[:, POSE_SIM] = spose
-    # xyz[:, RHAND] = rhand
-    # print(xyz)
+    print(xyz.shape)
+    print(xyz[0])
+    xyz = interpolate(xyz, -0.20)
+    print(xyz.shape)
+    print(xyz[0])

@@ -12,263 +12,6 @@ from arcface import ArcMarginProduct
 max_len = 80
 
 
-class ISLRModel(nn.Module):
-    def __init__(
-        self,
-        embed_dim,
-        n_head,
-        ff_dim,
-        dropout=0.1,
-        n_layer=1,
-        max_len=80,
-        n_labels=250,
-        num_points=82,
-        point_dim=3,
-        batch_first=True,
-    ):
-        super(ISLRModel, self).__init__()
-        pos_encoding = positional_encoding(max_len, embed_dim)
-        self.pos_emb = nn.Parameter(pos_encoding)
-        self.cls_emb = nn.Parameter(torch.zeros((1, embed_dim)))
-        self.xyz_emb = nn.Sequential(
-            nn.Linear(num_points * point_dim, embed_dim, bias=False)
-        )
-        self.feature_extractor = TransformerBlock(
-            embed_dim=embed_dim,
-            n_head=n_head,
-            ff_dim=ff_dim,
-            dropout=dropout,
-            n_layer=n_layer,
-            batch_first=batch_first,
-        )
-        self.logit = nn.Linear(embed_dim, n_labels)
-
-        self.max_len = max_len
-        self.point_dim = point_dim
-
-    def forward(self, batch):
-        xyz = batch["xyz"]
-        x, x_mask = pack_seq(xyz, self.max_len, self.point_dim)
-        B, L, _ = x.shape
-        x = self.xyz_emb(x)
-        x = x + self.pos_emb[:L].unsqueeze(0)
-        x = torch.cat([self.cls_emb.unsqueeze(0).repeat(B, 1, 1), x], 1)
-        x_mask = torch.cat([torch.zeros(B, 1).to(x_mask), x_mask], 1)
-        x = self.feature_extractor(x, x_mask)
-        cls = x[:, 0]
-        cls = F.dropout(cls, p=0.4, training=self.training)
-        logit = self.logit(cls)
-
-        return logit
-
-
-class ISLRModelV2(nn.Module):
-    def __init__(
-        self,
-        embed_dim,
-        n_head,
-        ff_dim,
-        dropout=0.1,
-        n_layer=1,
-        max_len=384,
-        n_labels=250,
-        input_dim=912,
-        batch_first=True,
-    ):
-        super(ISLRModelV2, self).__init__()
-        pos_encoding = positional_encoding(max_len, embed_dim)
-        self.pos_emb = nn.Parameter(pos_encoding)
-        self.cls_emb = nn.Parameter(torch.zeros((1, embed_dim)))
-        self.xyz_emb = nn.Sequential(nn.Linear(input_dim, embed_dim, bias=False))
-        self.feature_extractor = TransformerBlock(
-            embed_dim=embed_dim,
-            n_head=n_head,
-            ff_dim=ff_dim,
-            dropout=dropout,
-            n_layer=n_layer,
-            batch_first=batch_first,
-        )
-        self.logit = nn.Linear(embed_dim, n_labels)
-
-        self.max_len = max_len
-        self.input_dim = input_dim
-
-    def forward(self, batch):
-        xyz = batch["xyz"]
-        x, x_mask = pack_seqv2(xyz, self.max_len)
-        B, L, _ = x.shape
-        x = self.xyz_emb(x)
-        x = x + self.pos_emb[:L].unsqueeze(0)
-        x = torch.cat([self.cls_emb.unsqueeze(0).repeat(B, 1, 1), x], 1)
-        x_mask = torch.cat([torch.zeros(B, 1).to(x_mask), x_mask], 1)
-        x = self.feature_extractor(x, x_mask)
-        cls = x[:, 0]
-        cls = F.dropout(cls, p=0.4, training=self.training)
-        logit = self.logit(cls)
-
-        return logit
-
-
-# deeper embedding + v2
-class ISLRModelV3(nn.Module):
-    def __init__(
-        self,
-        embed_dim,
-        n_head,
-        ff_dim,
-        dropout=0.1,
-        n_layer=1,
-        max_len=384,
-        n_labels=250,
-        input_dim=912,
-        batch_first=True,
-    ):
-        super(ISLRModelV3, self).__init__()
-        pos_encoding = positional_encoding(max_len, embed_dim)
-        self.pos_emb = nn.Parameter(pos_encoding)
-        self.cls_emb = nn.Parameter(torch.zeros((1, embed_dim)))
-        self.xyz_emb = nn.Sequential(
-            nn.Linear(input_dim, embed_dim, bias=True),
-            nn.LayerNorm(embed_dim),
-            nn.ReLU(inplace=True),
-            nn.Linear(embed_dim, embed_dim, bias=True),
-            nn.LayerNorm(embed_dim),
-            nn.ReLU(inplace=True),
-        )
-        self.feature_extractor = TransformerBlock(
-            embed_dim=embed_dim,
-            n_head=n_head,
-            ff_dim=ff_dim,
-            dropout=dropout,
-            n_layer=n_layer,
-            batch_first=batch_first,
-        )
-        self.logit = nn.Linear(embed_dim, n_labels)
-
-        self.max_len = max_len
-        self.input_dim = input_dim
-
-    def forward(self, batch):
-        xyz = batch["xyz"]
-        x, x_mask = pack_seqv2(xyz, self.max_len)
-        B, L, _ = x.shape
-        x = self.xyz_emb(x)
-        x = F.dropout(x + self.pos_emb[:L].unsqueeze(0), p=0.1, training=self.training)
-        x = torch.cat([self.cls_emb.unsqueeze(0).repeat(B, 1, 1), x], 1)
-        x_mask = torch.cat([torch.zeros(B, 1).to(x_mask), x_mask], 1)
-        x = self.feature_extractor(x, x_mask)
-        cls = x[:, 0]
-        cls = F.dropout(cls, p=0.4, training=self.training)
-        logit = self.logit(cls)
-
-        return logit
-
-
-# more dropout layer + v2
-class ISLRModelV4(nn.Module):
-    def __init__(
-        self,
-        embed_dim,
-        n_head,
-        ff_dim,
-        dropout=0.1,
-        max_len=384,
-        n_labels=250,
-        input_dim=912,
-        batch_first=True,
-    ):
-        super(ISLRModelV4, self).__init__()
-        pos_encoding = positional_encoding(max_len, embed_dim)
-        self.pos_emb = nn.Parameter(pos_encoding)
-        self.cls_emb = nn.Parameter(torch.zeros((1, embed_dim)))
-        self.xyz_emb = nn.Sequential(nn.Linear(input_dim, embed_dim, bias=False))
-        self.feature_extractor = TransformerBlockV2(
-            embed_dim=embed_dim,
-            n_head=n_head,
-            ff_dim=ff_dim,
-            dropout=dropout,
-            batch_first=batch_first,
-        )
-        self.logit = nn.Linear(embed_dim, n_labels)
-
-        self.max_len = max_len
-        self.input_dim = input_dim
-        self.p = dropout
-
-    def forward(self, batch):
-        xyz = batch["xyz"]
-        x, x_mask = pack_seqv2(xyz, self.max_len)
-        B, L, _ = x.shape
-        x = self.xyz_emb(x)
-        x = F.dropout(
-            x + self.pos_emb[:L].unsqueeze(0), p=self.p, training=self.training
-        )
-        x = torch.cat([self.cls_emb.unsqueeze(0).repeat(B, 1, 1), x], 1)
-        x_mask = torch.cat([torch.zeros(B, 1).to(x_mask), x_mask], 1)
-        x = self.feature_extractor(x, x_mask)
-        cls = x[:, 0]
-        cls = F.dropout(cls, p=0.4, training=self.training)
-        logit = self.logit(cls)
-
-        return logit
-
-
-# deeper embedding + more dropout layer + v2
-class ISLRModelV5(nn.Module):
-    def __init__(
-        self,
-        embed_dim,
-        n_head,
-        ff_dim,
-        dropout=0.1,
-        max_len=384,
-        n_labels=250,
-        input_dim=912,
-        batch_first=True,
-    ):
-        super(ISLRModelV5, self).__init__()
-        pos_encoding = positional_encoding(max_len, embed_dim)
-        self.pos_emb = nn.Parameter(pos_encoding)
-        self.cls_emb = nn.Parameter(torch.zeros((1, embed_dim)))
-        self.xyz_emb = nn.Sequential(
-            nn.Linear(input_dim, embed_dim, bias=True),
-            nn.LayerNorm(embed_dim),
-            nn.ReLU(inplace=True),
-            nn.Linear(embed_dim, embed_dim, bias=True),
-            nn.LayerNorm(embed_dim),
-            nn.ReLU(inplace=True),
-        )
-        self.feature_extractor = TransformerBlockV2(
-            embed_dim=embed_dim,
-            n_head=n_head,
-            ff_dim=ff_dim,
-            dropout=dropout,
-            batch_first=batch_first,
-        )
-        self.logit = nn.Linear(embed_dim, n_labels)
-
-        self.max_len = max_len
-        self.input_dim = input_dim
-        self.p = dropout
-
-    def forward(self, batch):
-        xyz = batch["xyz"]
-        x, x_mask = pack_seqv2(xyz, self.max_len)
-        B, L, _ = x.shape
-        x = self.xyz_emb(x)
-        x = F.dropout(
-            x + self.pos_emb[:L].unsqueeze(0), p=self.p, training=self.training
-        )
-        x = torch.cat([self.cls_emb.unsqueeze(0).repeat(B, 1, 1), x], 1)
-        x_mask = torch.cat([torch.zeros(B, 1).to(x_mask), x_mask], 1)
-        x = self.feature_extractor(x, x_mask)
-        cls = x[:, 0]
-        cls = F.dropout(cls, p=0.4, training=self.training)
-        logit = self.logit(cls)
-
-        return logit
-
-
 # 2 encoder + more dropout layer + v2
 class ISLRModelV6(nn.Module):
     def __init__(
@@ -325,24 +68,25 @@ class ISLRModelV6(nn.Module):
         return logit
 
 
-# Arcface + 2 encoder + more dropout layer + v2
-class ISLRModelV7(nn.Module):
+# v6 + arcface
+class ISLRModelArcFace(nn.Module):
     def __init__(
         self,
         embed_dim,
         n_head,
         ff_dim,
-        dropout=0.1,
-        cls_dropout=0.4,
-        max_len=384,
+        dropout=0.2,
+        cls_dropout=0.2,
+        max_len=64,
         n_labels=250,
-        input_dim=912,
-        n_layers=2,
-        s=30,
+        input_dim=1194,
+        n_layers=5,
+        s=32,
         m=0.1,
+        k=3,
         batch_first=True,
     ):
-        super(ISLRModelV7, self).__init__()
+        super(ISLRModelArcFace, self).__init__()
         pos_encoding = positional_encoding(max_len, embed_dim)
         self.pos_emb = nn.Parameter(pos_encoding)
         self.cls_emb = nn.Parameter(torch.zeros((1, embed_dim)))
@@ -357,13 +101,13 @@ class ISLRModelV7(nn.Module):
             ),
             N=n_layers,
         )
-        # self.logit = nn.Linear(embed_dim, embed_dim)
-        self.arc = ArcMarginProduct(embed_dim, n_labels, s=s, m=m)
+        # self.logit = nn.Linear(embed_dim, n_labels)
+        self.arc = ArcMarginProduct(embed_dim, n_labels, s=s, m=m, K=k)
 
         self.max_len = max_len
         self.input_dim = input_dim
         self.p = dropout
-        self.clsp = cls_dropout
+        self.cls_p = cls_dropout
 
     def forward(self, batch):
         xyz = batch["xyz"]
@@ -385,10 +129,260 @@ class ISLRModelV7(nn.Module):
             x = mod(x, x_mask)
 
         cls = x[:, 0]
-        cls = F.dropout(cls, p=self.clsp, training=self.training)
-
+        cls = F.dropout(cls, p=self.cls_p, training=self.training)
         # logit = self.logit(cls)
         logit = self.arc(cls, label)
+
+        return logit
+
+
+# v6 + arcface + w/ simple c.e
+class ISLRModelArcFaceCE(nn.Module):
+    def __init__(
+        self,
+        embed_dim,
+        n_head,
+        ff_dim,
+        dropout=0.2,
+        cls_dropout=0.2,
+        max_len=64,
+        n_labels=250,
+        input_dim=1194,
+        n_layers=5,
+        s=32,
+        m=0.1,
+        k=3,
+        batch_first=True,
+    ):
+        super(ISLRModelArcFaceCE, self).__init__()
+        pos_encoding = positional_encoding(max_len, embed_dim)
+        self.pos_emb = nn.Parameter(pos_encoding)
+        self.cls_emb = nn.Parameter(torch.zeros((1, embed_dim)))
+        self.xyz_emb = nn.Sequential(nn.Linear(input_dim, embed_dim, bias=False))
+        self.feature_extractor = _get_clones(
+            TransformerBlockV2(
+                embed_dim=embed_dim,
+                n_head=n_head,
+                ff_dim=ff_dim,
+                dropout=dropout,
+                batch_first=batch_first,
+            ),
+            N=n_layers,
+        )
+        self.logit = nn.Linear(embed_dim, n_labels)
+        self.arc = ArcMarginProduct(embed_dim, n_labels, s=s, m=m, K=k)
+
+        self.max_len = max_len
+        self.input_dim = input_dim
+        self.p = dropout
+        self.cls_p = cls_dropout
+
+    def forward(self, batch):
+        xyz = batch["xyz"]
+        if self.training:
+            label = batch["label"]
+        else:
+            label = None
+
+        x, x_mask = pack_seqv2(xyz, self.max_len)
+        B, L, _ = x.shape
+        x = self.xyz_emb(x)
+        x = F.dropout(
+            x + self.pos_emb[:L].unsqueeze(0), p=self.p, training=self.training
+        )
+        x = torch.cat([self.cls_emb.unsqueeze(0).repeat(B, 1, 1), x], 1)
+        x_mask = torch.cat([torch.zeros(B, 1).to(x_mask), x_mask], 1)
+
+        for mod in self.feature_extractor:
+            x = mod(x, x_mask)
+
+        cls = x[:, 0]
+        cls = F.dropout(cls, p=self.cls_p, training=self.training)
+
+        logit = self.logit(cls)
+        arc_logit = self.arc(cls, label)
+
+        return logit, arc_logit
+
+
+# V6 + GCN embedding
+from deprecated.gcn import GCNLayer
+from deprecated.graph import Graph
+
+
+class ISLRModelV8(nn.Module):
+    def __init__(
+        self,
+        embed_dim,
+        n_head,
+        ff_dim,
+        dropout=0.1,
+        max_len=384,
+        n_labels=250,
+        n_gcn_layers=2,
+        gcn_c_in=2,
+        gcn_c_out=4,
+        n_tf_layers=5,
+        graph="A",
+        hop=1,
+        batch_first=True,
+    ):
+        super(ISLRModelV8, self).__init__()
+        pos_encoding = positional_encoding(max_len, embed_dim)
+        self.pos_emb = nn.Parameter(pos_encoding)
+        self.cls_emb = nn.Parameter(torch.zeros((1, embed_dim)))
+
+        xyz_emb = []
+        c_in, c_out = gcn_c_in, gcn_c_out
+        for i in range(n_gcn_layers - 1):
+            xyz_emb += [
+                GCNLayer(c_in=c_in, c_out=c_out),
+                nn.ReLU(inplace=True),
+                nn.Dropout(p=dropout),
+            ]
+            c_in = c_out
+        xyz_emb += [GCNLayer(c_in=c_in, c_out=c_out)]
+        self.xyz_emb = ModuleList(xyz_emb)
+
+        self.feature_extractor = _get_clones(
+            TransformerBlockV2(
+                embed_dim=embed_dim,
+                n_head=n_head,
+                ff_dim=ff_dim,
+                dropout=dropout,
+                batch_first=batch_first,
+            ),
+            N=n_tf_layers,
+        )
+        self.logit = nn.Linear(embed_dim, n_labels)
+
+        self.max_len = max_len
+        self.p = dropout
+        if graph == "A":
+            self.A = Graph(hop).A
+        # elif graph == "B":
+        #     self.A = GraphB().A
+
+        self.num_point = self.A.shape[0]
+        self.gcn_c_in = gcn_c_in
+
+        assert embed_dim == gcn_c_out * self.num_point
+
+    def forward(self, batch):
+        xyz = batch["xyz"]
+        x, x_mask = pack_seq(xyz, self.max_len, self.gcn_c_in)
+        B, L, _, _ = x.shape
+        A = self.A.repeat(B, L, 1, 1).cuda()
+
+        for layer in self.xyz_emb:
+            if isinstance(layer, GCNLayer):
+                x = layer(x, A)
+            else:
+                x = layer(x)
+
+        x = x.reshape(B, L, -1)
+        x = F.dropout(
+            x + self.pos_emb[:L].unsqueeze(0), p=self.p, training=self.training
+        )
+        x = torch.cat([self.cls_emb.unsqueeze(0).repeat(B, 1, 1), x], 1)
+        x_mask = torch.cat([torch.zeros(B, 1).to(x_mask), x_mask], 1)
+
+        for mod in self.feature_extractor:
+            x = mod(x, x_mask)
+
+        cls = x[:, 0]
+        cls = F.dropout(cls, p=0.4, training=self.training)
+        logit = self.logit(cls)
+
+        return logit
+
+
+class ISLRModelV8_1(nn.Module):
+    def __init__(
+        self,
+        embed_dim,
+        n_head,
+        ff_dim,
+        dropout=0.1,
+        window=64,
+        n_labels=250,
+        n_gcn_layers=2,
+        gcn_c_in=58,
+        gcn_c_out=256,
+        n_tf_layers=5,
+        graph="A",
+        hop=2,
+        batch_first=True,
+    ):
+        super(ISLRModelV8_1, self).__init__()
+        pos_encoding = positional_encoding(window, embed_dim)
+        self.pos_emb = nn.Parameter(pos_encoding)
+        self.cls_emb = nn.Parameter(torch.zeros((1, embed_dim)))
+        self.graph_norm = nn.LayerNorm(embed_dim)
+
+        xyz_emb = []
+        c_in, c_out = gcn_c_in, gcn_c_out
+        for i in range(n_gcn_layers - 1):
+            xyz_emb += [
+                GCNLayer(c_in=c_in, c_out=c_out),
+                nn.ReLU(inplace=True),
+                nn.Dropout(p=dropout),
+            ]
+            c_in = c_out
+        xyz_emb += [GCNLayer(c_in=c_in, c_out=c_out)]
+        self.xyz_emb = ModuleList(xyz_emb)
+
+        self.feature_extractor = _get_clones(
+            TransformerBlockV2(
+                embed_dim=embed_dim,
+                n_head=n_head,
+                ff_dim=ff_dim,
+                dropout=dropout,
+                batch_first=batch_first,
+            ),
+            N=n_tf_layers,
+        )
+        self.logit = nn.Linear(embed_dim, n_labels)
+
+        self.window = window
+        self.p = dropout
+        if graph == "A":
+            self.A = Graph(hop).A
+        # elif graph == "B":
+        #     self.A = GraphB().A
+
+        self.num_point = self.A.shape[0]
+        self.gcn_c_in = gcn_c_in
+
+    def forward(self, batch):
+        xyz = batch["xyz"]
+        x, x_mask = pack_seq(xyz, self.window, self.gcn_c_in)
+        B, L, _, _ = x.shape
+        A = self.A.repeat(B, L, 1, 1).cuda()
+
+        for layer in self.xyz_emb:
+            if isinstance(layer, GCNLayer):
+                x = layer(x, A)
+            else:
+                x = layer(x)
+
+        # average pooling
+        x = x.mean(dim=2, keepdim=False)  # [B, L, 128]
+        x = self.graph_norm(x)
+
+        # x = x.reshape(B, L, -1)
+        x = F.dropout(
+            x + self.pos_emb[:L].unsqueeze(0), p=self.p, training=self.training
+        )
+        x = torch.cat([self.cls_emb.unsqueeze(0).repeat(B, 1, 1), x], 1)
+        x_mask = torch.cat([torch.zeros(B, 1).to(x_mask), x_mask], 1)
+
+        for mod in self.feature_extractor:
+            x = mod(x, x_mask)
+
+        cls = x[:, 0]
+        cls = F.dropout(cls, p=0.4, training=self.training)
+        logit = self.logit(cls)
 
         return logit
 
@@ -519,7 +513,7 @@ def pack_seq(seq, max_len, point_dim):
         x[b, :l] = seq[b][:l]
         x_mask[b, l:] = 1
     x_mask = x_mask > 0.5
-    x = x.reshape(batch_size, -1, K * point_dim)
+    # x = x.reshape(batch_size, -1, K * point_dim)
     return x, x_mask
 
 
@@ -541,18 +535,6 @@ def pack_seqv2(seq, max_len):
 
 def _get_clones(module, N):
     return ModuleList([copy.deepcopy(module) for i in range(N)])
-
-
-class MLPBlock(nn.Module):
-    def __init__(self, in_dim, out_dim, dropout=0.2):
-        super(MLPBlock, self).__init__()
-        self.linear = nn.Linear(in_dim, out_dim)
-        self.bn = nn.BatchNorm1d(out_dim)
-        self.activation = nn.GELU()
-        self.dropout = nn.Dropout(p=dropout)
-
-    def forward(self, x):
-        return self.dropout(self.activation(self.bn(self.linear(x))))
 
 
 if __name__ == "__main__":
