@@ -1,0 +1,19 @@
+python train_se.py \
+--embed_dim 256 \
+--ff_dim 256 \
+--T_0 140 \
+--epochs 140 \
+--max_len 64 \
+--input_dim 1194 \
+--model_ver "v6" \
+--n_layers 5 \
+--dropout 0.2 \
+--weight True \
+--preproc_ver "v0_93" \
+--flip_x True \
+--flip_x_v2 True \
+--rotate True \
+--interpolate True \
+--lb 0.2 \
+--clean_data True \
+--exp_name "test-ce-only-clean"

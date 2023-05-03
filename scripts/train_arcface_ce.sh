@@ -1,0 +1,23 @@
+python train_sd.py \
+--embed_dim 256 \
+--ff_dim 256 \
+--T_0 140 \
+--epochs 140 \
+--max_len 64 \
+--input_dim 1194 \
+--model_ver "arcface_ce" \
+--n_layers 5 \
+--dropout 0.2 \
+--cls_dropout 0.2 \
+--preproc_ver "v0_93" \
+--flip_x True \
+--flip_x_v2 True \
+--rotate True \
+--interpolate True \
+--lb 0.1 \
+--s 32 \
+--m 0.2 \
+--k 3 \
+--alpha 1.0 \
+--beta 0.2 \
+--exp_name "test-arcface-ce-sd-ab1002-m02"
